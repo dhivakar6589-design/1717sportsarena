@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const bookingForm = document.getElementById('bookingForm');
   const msg = document.getElementById('bookingMsg');
 
-  const ADVANCE_AMOUNT = 100;
+  const ADVANCE_PER_SLOT = 100;
 
   let selectedDate = null;
   let selectedSlots = [];
@@ -140,11 +140,14 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     const total = selectedSlots.reduce((sum, s) => sum + s.price, 0);
-    const balance = Math.max(total - ADVANCE_AMOUNT, 0);
+    const advance = Math.min(ADVANCE_PER_SLOT * selectedSlots.length, total);
+    const balance = total - advance;
+    const payBtn = document.getElementById('payBtn');
 
     totalAmt.textContent = '₹' + total;
-    advanceAmt.textContent = '₹' + ADVANCE_AMOUNT;
+    advanceAmt.textContent = '₹' + advance;
     balanceAmt.textContent = '₹' + balance;
+    if (payBtn) payBtn.textContent = `Pay ₹${advance} Advance & Book`;
     priceSummary.style.display = 'block';
   }
 
@@ -189,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (selectedSlots.length === 0) { msg.style.color = '#ff5c5c'; msg.textContent = 'Please select at least one time slot.'; return; }
 
     const totalAmount = selectedSlots.reduce((sum, s) => sum + s.price, 0);
-    const advanceAmount = ADVANCE_AMOUNT;
+    const advanceAmount = Math.min(ADVANCE_PER_SLOT * selectedSlots.length, totalAmount);
     const balanceAmount = totalAmount - advanceAmount;
     const slotsSorted = selectedSlots.map(s => s.label).sort();
 

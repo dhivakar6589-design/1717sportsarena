@@ -153,7 +153,7 @@ app.use('/js', express.static(path.join(SITE_ROOT, 'js')));
 app.use('/images', express.static(path.join(SITE_ROOT, 'images')));
 
 // ---- Pricing rules (must match the frontend slot grid in js/booking.js) ----
-const ADVANCE_AMOUNT = 100;
+const ADVANCE_PER_SLOT = 100;
 const VALID_SPORTS = ['football', 'cricket'];
 const VALID_FORMATS = ['5s', '6s'];
 
@@ -246,7 +246,7 @@ app.post('/api/bookings', bookingLimiter, (req, res) => {
     if (price === null) return res.status(400).json({ error: 'Slot outside opening hours' });
     totalAmount += price;
   }
-  const advanceAmount = Math.min(ADVANCE_AMOUNT, totalAmount);
+  const advanceAmount = Math.min(ADVANCE_PER_SLOT * slots.length, totalAmount);
   const balanceAmount = totalAmount - advanceAmount;
 
   // Past slots on today's date can never be booked

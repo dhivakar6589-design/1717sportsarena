@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1717 Sports Arena | Book Your Turf</title>
+<meta name="description" content="1717 Sports Arena - Premium turf booking near St. John's Chappel, Puthencavu, Chengannur, Kerala">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/png" href="images/logo.png">
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+
+<!-- NAVBAR -->
+<header class="navbar">
+  <nav>
+    <ul>
+      <li><a href="#home">Home</a></li>
+      <li><a href="#facilities">Facilities</a></li>
+      <li><a href="#details">Details</a></li>
+      <li><a href="#booking">Book Now</a></li>
+      <li><a href="#mybookings">My Bookings</a></li>
+      <li><a href="#news">News</a></li>
+      <li><a href="#reviews">Reviews</a></li>
+      <li><a href="#contact">Contact</a></li>
+      <li><a href="host.html" class="host-link">🔒 Host Login</a></li>
+    </ul>
+  </nav>
+  <a href="#booking" class="nav-cta">Book a Slot</a>
+  <button class="hamburger" id="hamburger" aria-label="Menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+</header>
+
+<!-- HERO -->
+<section id="home" class="hero">
+  <div class="hero-content">
+    <img src="images/logo.png" alt="1717 Sports Arena Logo" class="hero-logo">
+    <h1>1717 SPORTS ARENA</h1>
+    <p class="quote">"Where Passion Ignites, Champion Rise!"</p>
+    <p class="hero-sub">Premium Turf Booking in Chengannur, Kerala</p>
+    <a href="#booking" class="btn-primary">Book Your Slot Now</a>
+  </div>
+</section>
+
+<!-- FACILITIES -->
+<section id="facilities" class="section facilities reveal">
+  <h2>Our Facilities</h2>
+  <div class="card-grid">
+    <div class="card">
+      <h3>⚽ Premium Turf</h3>
+      <p>FIFA-standard synthetic grass turf for football & multi-sport use.</p>
+    </div>
+    <div class="card">
+      <h3>💡 Flood Lights</h3>
+      <p>High-intensity lighting for comfortable night games.</p>
+    </div>
+    <div class="card">
+      <h3>🚻 Changing Rooms</h3>
+      <p>Clean washrooms and changing facilities on-site.</p>
+    </div>
+    <div class="card">
+      <h3>🅿️ Parking</h3>
+      <p>Free and secure parking space for all players.</p>
+    </div>
+    <div class="card">
+      <h3>🥤 Refreshments</h3>
+      <p>On-site drinking water & refreshment counter.</p>
+    </div>
+    <div class="card">
+      <h3>🛡️ Safety First</h3>
+      <p>Padded boundary nets and first-aid support available.</p>
+    </div>
+  </div>
+</section>
+
+<!-- DETAILS -->
+<section id="details" class="section details reveal">
+  <h2>Arena Details</h2>
+  <div class="details-grid">
+    <div class="detail-box">
+      <h3>📍 Location</h3>
+      <p>Near St. John's Chappel, Puthencavu,<br>Chengannur, Kerala - 689123</p>
+    </div>
+    <div class="detail-box">
+      <h3>🕒 Timing</h3>
+      <p>Open Daily<br>06:00 AM – 10:00 PM</p>
+    </div>
+    <div class="detail-box">
+      <h3>📞 Contact</h3>
+      <p>+91 94953 51717<br>+91 99618 91717</p>
+    </div>
+  </div>
+
+  <div class="map-wrapper">
+    <iframe
+      src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3937.10290434315!2d76.63441807399941!3d9.324149484301142!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3b0623a290e815e7%3A0x1a6b94fd7a94f4e5!2s1717%20SPORTS%20ARENA%20(TURF)!5e0!3m2!1sen!2sin!4v1785343550942!5m2!1sen!2sin"
+      width="100%"
+      height="350"
+      style="border:0;"
+      allowfullscreen=""
+      loading="lazy"
+      referrerpolicy="strict-origin-when-cross-origin">
+    </iframe>
+  </div>
+</section>
+
+<!-- BOOKING -->
+<section id="booking" class="section booking reveal">
+  <h2>Book Your Slot</h2>
+  <form id="bookingForm" class="booking-form">
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="name">Full Name</label>
+        <input type="text" id="name" required placeholder="Your name">
+      </div>
+      <div class="form-group">
+        <label for="phone">Phone Number</label>
+        <input type="tel" id="phone" required pattern="[0-9]{10}" placeholder="10-digit number">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Select Sport</label>
+      <div class="sport-toggle">
+        <label class="sport-option">
+          <input type="radio" name="sport" value="football" checked>
+          <span>⚽ Football</span>
+        </label>
+        <label class="sport-option">
+          <input type="radio" name="sport" value="cricket">
+          <span>🏏 Cricket</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Select Format</label>
+      <div class="format-toggle">
+        <label class="format-option">
+          <input type="radio" name="format" value="5s" checked>
+          <span>5's</span>
+        </label>
+        <label class="format-option">
+          <input type="radio" name="format" value="6s">
+          <span>6's</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Select Date</label>
+      <div id="dateStrip" class="date-strip"></div>
+    </div>
+
+    <div class="form-group">
+      <label>Available Slots (tap one or more)</label>
+      <div id="slotGrid" class="slot-grid"></div>
+    </div>
+
+    <div id="priceSummary" class="price-summary" style="display:none;">
+      <div class="price-row"><span>Total Amount</span><span id="totalAmt">₹0</span></div>
+      <div class="price-row highlight"><span>Pay Now (Advance)</span><span id="advanceAmt">₹100</span></div>
+      <div class="price-row"><span>Pay at Turf (Balance)</span><span id="balanceAmt">₹0</span></div>
+      <p class="refund-notice">⚠️ Advance payment is non-refundable, including in case of cancellation.</p>
+    </div>
+
+    <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
+      <input type="checkbox" id="agreeRefundPolicy" required style="width: auto;">
+      <label for="agreeRefundPolicy" style="margin: 0; font-size: 13px;">
+        I understand the advance payment is non-refundable.
+      </label>
+    </div>
+    <div id="bookingMsg" class="form-msg"></div>
+    <button type="submit" class="btn-primary">Pay ₹100 Advance & Book</button>
+  </form>
+  <div id="bookingConfirm" class="booking-confirm" style="display:none;"></div>
+</section>
+
+<!-- MY BOOKINGS -->
+<section id="mybookings" class="section bookings-lookup reveal">
+  <h2>My Bookings</h2>
+  <p class="lookup-hint">Enter the 10-digit phone number you booked with to view and cancel your bookings.</p>
+  <div class="lookup-form">
+    <input type="tel" id="lookupPhone" placeholder="10-digit phone number" pattern="[0-9]{10}" maxlength="10">
+    <button type="button" class="btn-secondary" id="lookupBtn">Find My Bookings</button>
+  </div>
+  <div id="lookupMsg" class="form-msg"></div>
+  <div id="myBookingsList" class="my-bookings-list"></div>
+</section>
+
+<!-- NEWS -->
+<section id="news" class="section news reveal">
+  <h2>Tournaments & News</h2>
+  <div id="newsPublicList" class="news-grid"></div>
+</section>
+
+<!-- REVIEWS -->
+<section id="reviews" class="section reviews reveal">
+  <h2>Player Reviews</h2>
+  <form id="reviewForm" class="review-form">
+    <input type="text" id="reviewerName" placeholder="Your Name" required>
+    <select id="reviewRating" required>
+      <option value="">Rating</option>
+      <option value="5">⭐⭐⭐⭐⭐ Excellent</option>
+      <option value="4">⭐⭐⭐⭐ Very Good</option>
+      <option value="3">⭐⭐⭐ Good</option>
+      <option value="2">⭐⭐ Average</option>
+      <option value="1">⭐ Poor</option>
+    </select>
+    <textarea id="reviewText" placeholder="Share your experience..." required></textarea>
+    <button type="submit" class="btn-secondary">Submit Review</button>
+  </form>
+  <div id="reviewsList" class="reviews-list"></div>
+</section>
+
+<!-- CONTACT / FOOTER -->
+<footer id="contact" class="footer">
+  <h2>1717 SPORTS ARENA</h2>
+  <p class="quote-footer">"Where Passion Ignites, Champion Rise!"</p>
+  <p>Near St. John's Chappel, Puthencavu, Chengannur, Kerala - 689123</p>
+  <p>📞 9495351717 | 9961891717 &nbsp; | &nbsp; 🕒 06:00 AM - 10:00 PM</p>
+  <p class="copyright">© 2026 1717 Sports Arena. All rights reserved.</p>
+</footer>
+
+<div id="lightboxOverlay" class="lightbox-overlay" onclick="closeLightbox()">
+  <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
+  <img id="lightboxImg" src="" alt="Full view">
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/booking.js"></script>
+<script src="js/script.js"></script>
+</body>
+</html>

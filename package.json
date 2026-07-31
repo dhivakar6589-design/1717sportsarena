@@ -1,0 +1,9 @@
+{
+  "name": "1717-sports-arena",
+  "version": "1.0.0",
+  "private": true,
+  "description": "1717 Sports Arena - Turf booking website (frontend + backend)",
+  "dependencies": {
+    "razorpay": "^2.9.8"
+  }
+}

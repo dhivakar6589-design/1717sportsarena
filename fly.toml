@@ -1,0 +1,35 @@
+# Fly.io config — deploys the whole site (backend + frontend) to one app.
+# Docs: https://fly.io/docs/reference/configuration/
+
+app = "1717-sports-arena"
+primary_region = "bom" # Mumbai — change to your closest region (e.g. "maa", "del", "fra", "iad")
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "4000"
+  DATA_DIR = "/data"
+
+[experimental]
+  auto_rollback = true
+
+# Persistent volume so the SQLite DB and uploads survive redeploys.
+# Create it once with: fly volumes create data --region bom --size 1
+[[mounts]]
+  source = "data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.checks]
+    interval = "10s"
+    timeout = "2s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/news"

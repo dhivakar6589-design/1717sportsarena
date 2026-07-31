@@ -4,15 +4,11 @@ services:
   - type: web
     name: 1717-sports-arena
     runtime: node
-    plan: starter
-    buildCommand: cd backend && npm install
+    plan: free
+    buildCommand: cd backend && npm install && npm rebuild better-sqlite3
     startCommand: node backend/server.js
     healthCheckPath: /api/news
     envVars:
-      - key: NODE_VERSION
-        value: "20"
-      - key: DATA_DIR
-        value: /data
       - key: JWT_SECRET
         sync: false
       - key: ADMIN_USERNAME
@@ -24,8 +20,4 @@ services:
       - key: RAZORPAY_KEY_SECRET
         sync: false
       - key: ALLOWED_ORIGINS
-        value: https://1717-sports-arena.onrender.com
-    disk:
-      name: data
-      mountPath: /data
-      sizeGB: 1
+        value: https://one717-sports-arena.onrender.com

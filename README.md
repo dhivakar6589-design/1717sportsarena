@@ -80,7 +80,7 @@ Option A — Deploy everything to Render (simplest, recommended)
      `ADMIN_USERNAME`/`ADMIN_PASSWORD` — you don't need to run `setup-host.js` on the server.
    - A 1GB persistent disk is mounted at `/data`, where the SQLite DB and uploads live,
      so data survives redeploys.
-3. Your site will be at `https://1717-sports-arena.onrender.com` (update the URL in
+3. Your site will be at `https://one717-sports-arena.onrender.com` (update the URL in
    `render.yaml` first if you change the service name).
    - CORS is automatic for same-origin requests, so nothing else needs configuring.
 

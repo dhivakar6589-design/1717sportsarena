@@ -151,9 +151,18 @@ document.addEventListener('DOMContentLoaded', () => {
     priceSummary.style.display = 'block';
   }
 
+  function toggleFormatGroup() {
+    const formatGroup = document.getElementById('formatGroup');
+    if (formatGroup) formatGroup.style.display = getSelectedSport() === 'football' ? 'block' : 'none';
+  }
+
   document.querySelectorAll('input[name="sport"]').forEach(radio => {
-    radio.addEventListener('change', generateSlotGrid);
+    radio.addEventListener('change', () => {
+      toggleFormatGroup();
+      generateSlotGrid();
+    });
   });
+  toggleFormatGroup();
 
   function refreshPastSlots() {
     if (selectedDate !== formatDateISO(new Date())) return;

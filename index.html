@@ -80,9 +80,20 @@
 <section id="details" class="section details reveal">
   <h2>Arena Details</h2>
   <div class="details-grid">
-    <div class="detail-box">
+    <div class="detail-box location-box">
       <h3>📍 Location</h3>
       <p>Near St. John's Chappel, Puthencavu,<br>Chengannur, Kerala - 689123</p>
+      <div class="map-wrapper">
+        <iframe
+          src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3937.10290434315!2d76.63441807399941!3d9.324149484301142!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3b0623a290e815e7%3A0x1a6b94fd7a94f4e5!2s1717%20SPORTS%20ARENA%20(TURF)!5e0!3m2!1sen!2sin!4v1785343550942!5m2!1sen!2sin"
+          width="100%"
+          height="300"
+          style="border:0;"
+          allowfullscreen=""
+          loading="lazy"
+          referrerpolicy="strict-origin-when-cross-origin">
+        </iframe>
+      </div>
     </div>
     <div class="detail-box">
       <h3>🕒 Timing</h3>
@@ -92,18 +103,6 @@
       <h3>📞 Contact</h3>
       <p>+91 94953 51717<br>+91 99618 91717</p>
     </div>
-  </div>
-
-  <div class="map-wrapper">
-    <iframe
-      src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3937.10290434315!2d76.63441807399941!3d9.324149484301142!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3b0623a290e815e7%3A0x1a6b94fd7a94f4e5!2s1717%20SPORTS%20ARENA%20(TURF)!5e0!3m2!1sen!2sin!4v1785343550942!5m2!1sen!2sin"
-      width="100%"
-      height="350"
-      style="border:0;"
-      allowfullscreen=""
-      loading="lazy"
-      referrerpolicy="strict-origin-when-cross-origin">
-    </iframe>
   </div>
 </section>
 
@@ -137,7 +136,7 @@
       </div>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="formatGroup">
       <label>Select Format</label>
       <div class="format-toggle">
         <label class="format-option">
@@ -165,7 +164,7 @@
       <div class="price-row"><span>Total Amount</span><span id="totalAmt">₹0</span></div>
       <div class="price-row highlight"><span>Pay Now (Advance)</span><span id="advanceAmt">₹100</span></div>
       <div class="price-row"><span>Pay at Turf (Balance)</span><span id="balanceAmt">₹0</span></div>
-      <p class="refund-notice">⚠️ Advance payment is non-refundable, including in case of cancellation.</p>
+      <p class="refund-notice">💳 Advance payment is ₹100 per slot (non-refundable, including in case of cancellation). Example: 3 slots = ₹300 advance.</p>
     </div>
 
     <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">

@@ -67,6 +67,21 @@
     background: rgba(255,255,255,0.08);
     color: #fff;
   }
+  #loginBox .pass-wrap { position: relative; margin: 10px 0; }
+  #loginBox .pass-wrap input { width: 100%; margin: 0; padding-right: 44px; box-sizing: border-box; }
+  #loginBox .pass-toggle {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    opacity: 0.6;
+    padding: 6px;
+  }
+  #loginBox .pass-toggle:hover { opacity: 1; }
   .table-wrap { overflow-x:auto; }
 
   .reset-modal-overlay {
@@ -103,7 +118,10 @@
   <h2 style="color:var(--accent-green)">Host Login</h2>
   <p style="color:var(--gray); margin-bottom:10px;">1717 Sports Arena Admin Panel</p>
   <input type="text" id="hostUser" placeholder="Username" autocomplete="off">
-  <input type="password" id="hostPass" placeholder="Password">
+  <div class="pass-wrap">
+    <input type="password" id="hostPass" placeholder="Password">
+    <button type="button" class="pass-toggle" onclick="togglePass()" aria-label="Show password">👁</button>
+  </div>
   <button class="btn-primary" style="width:100%; margin-top:10px;" onclick="checkLogin()">Login</button>
   <p id="loginError" style="color:#ff5c5c; margin-top:10px; min-height:20px;"></p>
 </div>
@@ -258,6 +276,20 @@
 <script src="js/config.js"></script>
 <script>
 let hostToken = sessionStorage.getItem('hostToken');
+
+function togglePass() {
+  const pass = document.getElementById('hostPass');
+  const btn = document.querySelector('#loginBox .pass-toggle');
+  if (pass.type === 'password') {
+    pass.type = 'text';
+    btn.textContent = '🙈';
+    btn.setAttribute('aria-label', 'Hide password');
+  } else {
+    pass.type = 'password';
+    btn.textContent = '👁';
+    btn.setAttribute('aria-label', 'Show password');
+  }
+}
 
 async function checkLogin() {
   const username = document.getElementById('hostUser').value.trim();

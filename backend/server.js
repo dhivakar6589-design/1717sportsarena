@@ -26,6 +26,17 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
+// Log which payment mode is active so it's obvious before going live.
+// Test keys start with rzp_test_, live keys with rzp_live_.
+const RP_KEY = process.env.RAZORPAY_KEY_ID || '';
+if (!RP_KEY || !process.env.RAZORPAY_KEY_SECRET) {
+  console.warn('⚠️  Razorpay keys are missing. Payments will fail.');
+} else if (RP_KEY.startsWith('rzp_test_')) {
+  console.warn('ℹ️  Razorpay is in TEST mode — no real money moves.');
+} else {
+  console.log('✅ Razorpay is LIVE — real payments are enabled.');
+}
+
 // ---- File upload setup ----
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),

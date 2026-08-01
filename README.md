@@ -48,7 +48,9 @@ Optional: Use the provided PowerShell helper to launch the backend and open the 
 Notes
 - The database file `turf.db` is stored in `backend/` (created automatically by the server).
 - Uploaded images are saved to `backend/uploads` and served at `http://localhost:4000/uploads/...`.
-- Razorpay uses test keys from `.env`. Replace them with your live keys before going live.
+- Razorpay is fully integrated (order creation, signature verification, refunds on
+  cancellation). It uses whatever `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` are in
+  the environment — test keys locally, live keys on the deployed server.
 - The server ignores client-supplied prices — slot amounts are always recomputed
   server-side, so tampering with the page cannot change what you're charged.
 
@@ -117,4 +119,30 @@ Notes for going live
 - Backend data lives on a persistent disk; your local `backend/turf.db` is NOT
   transferred. The admin account is auto-created from the env vars on first boot.
 - Never commit `backend/.env` or `backend/turf.db` (see `.gitignore`).
+
+Activating real (live) payments
+------------------------------
+The payment code is already live-ready. To switch from the test keys to real
+money:
+
+1. Activate your Razorpay live account: dashboard.razorpay.com → Settings →
+   Accounts & Details → complete KYC, then activate the payments.
+2. Add your website domain (e.g. `www.1717sportsarena.com`) under
+   Razorpay Dashboard → Settings → Website & App.
+3. Get your live keys: Razorpay Dashboard → Settings → API Keys → "Generate Key".
+   Live Key ID starts with `rzp_live_`.
+4. On the hosting platform (Render), open your service → Environment → Secrets
+   and set:
+   - `RAZORPAY_KEY_ID` = your `rzp_live_...` Key ID
+   - `RAZORPAY_KEY_SECRET` = your live Key Secret
+   Then redeploy/restart. Render secrets override the `.env` file and are never
+   stored in git.
+5. Verify: open the server logs — you should see
+   `✅ Razorpay is LIVE — real payments are enabled.` If it says TEST mode, the
+   live keys are not loaded.
+6. Do a small real test booking (₹100 advance) and then cancel it from My
+   Bookings to confirm the refund lands back in your account.
+
+Never paste the live Key Secret into chat, commit it to the repo, or put it in
+`backend/.env` on a shared machine. Keep it in the platform's secret store.
 

@@ -15,9 +15,13 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      # Live Razorpay keys are set ONLY as Render secrets (Dashboard → Environment),
+      # never in the repo. Test keys begin with rzp_test_, live keys with rzp_live_.
       - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET
         sync: false
+      # Same-origin deployments need no CORS config, but keep this accurate for
+      # safety if the frontend is ever served from a different origin.
       - key: ALLOWED_ORIGINS
-        value: https://one717-sports-arena.onrender.com
+        value: https://www.1717sportsarena.com,https://1717sportsarena.com

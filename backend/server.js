@@ -428,6 +428,23 @@ app.patch('/api/host/bookings/:id/status', requireHostAuth, async (req, res) => 
   res.json({ success: true });
 });
 
+// ================= HOST-ONLY: delete a booking entirely =================
+// Removes the booking from the system (no refund, no revenue impact). Used to
+// drop bookings whose advance was never collected (e.g. abandoned pending-payment).
+app.delete('/api/host/bookings/:id', requireHostAuth, async (req, res) => {
+  const { id } = req.params;
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
+  if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+  // Never silently delete a paid booking — cancel+refund instead so money isn't lost
+  if (booking.status === 'advance-paid' || booking.status === 'completed') {
+    return res.status(409).json({ error: 'Paid bookings cannot be deleted. Cancel the slot instead to trigger a refund.' });
+  }
+
+  await db.run('DELETE FROM bookings WHERE id = ?', [id]);
+  res.json({ success: true });
+});
+
 // ================= HOST-ONLY: mark balance collected =================
 app.patch('/api/host/bookings/:id/collect-balance', requireHostAuth, async (req, res) => {
   const { id } = req.params;

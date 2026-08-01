@@ -373,8 +373,10 @@ async function loadData() {
 
   const today = new Date().toISOString().split('T')[0];
 
+  // Only bookings that actually collected the advance count as revenue.
+  // Cancelled bookings are excluded — a cancelled slot was never collected.
   const paidAdvanceBookings = bookings.filter(b =>
-    b.status === 'advance-paid' || b.status === 'completed' || b.status === 'cancelled'
+    b.status === 'advance-paid' || b.status === 'completed'
   );
   const activeBookings = bookings.filter(b => b.status === 'advance-paid' || b.status === 'completed');
 
@@ -450,8 +452,9 @@ async function loadData() {
       <td class="status-${balanceClass}">${b.balanceStatus}</td>
       <td>${b.refundStatus === 'refunded' ? 'Refunded' : b.refundStatus === 'failed' ? 'Refund Failed' : '—'}</td>
       <td>
-        ${b.status !== 'cancelled' && b.status !== 'completed' ? `<button class="action btn-cancel" onclick="confirmCancel('${b.id}')">Cancel Slot</button>` : ''}
-        ${b.balanceStatus === 'due' && b.status !== 'cancelled' ? `<button class="action btn-secondary" onclick="collectBalance('${b.id}')">Mark Balance Collected</button>` : ''}
+        ${b.status === 'pending-payment' ? `<button class="action btn-cancel" onclick="confirmDelete('${b.id}')">Delete</button>` : ''}
+        ${b.status === 'advance-paid' ? `<button class="action btn-cancel" onclick="confirmCancel('${b.id}')">Cancel Slot</button>` : ''}
+        ${b.balanceStatus === 'due' && b.status !== 'cancelled' && b.status !== 'pending-payment' ? `<button class="action btn-secondary" onclick="collectBalance('${b.id}')">Mark Balance Collected</button>` : ''}
       </td>
     `;
     tbody.appendChild(row);
@@ -484,6 +487,24 @@ async function updateStatus(id, status) {
 function confirmCancel(id) {
   if (confirm('Are you sure you want to cancel this booking? This will free up the slot for other customers. If the advance was already paid, a refund will be initiated automatically.')) {
     updateStatus(id, 'cancelled');
+  }
+}
+
+async function deleteBooking(id) {
+  try {
+    const res = await authFetch(`${API_BASE}/host/bookings/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || 'Could not delete the booking.');
+      return;
+    }
+    loadData();
+  } catch (err) {}
+}
+
+function confirmDelete(id) {
+  if (confirm('Delete this booking? The advance was never collected, so it will be removed permanently and the slot freed up.')) {
+    deleteBooking(id);
   }
 }
 

@@ -5,10 +5,13 @@ services:
     name: 1717-sports-arena
     runtime: node
     plan: free
-    buildCommand: cd backend && npm install && npm rebuild better-sqlite3
+    buildCommand: cd backend && npm install
     startCommand: node backend/server.js
     healthCheckPath: /api/news
     envVars:
+      # Postgres connection string (Render Postgres). Set this secret in Render.
+      - key: DATABASE_URL
+        sync: false
       - key: JWT_SECRET
         sync: false
       - key: ADMIN_USERNAME

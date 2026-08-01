@@ -33,11 +33,11 @@ function envOrPrompt(envKey, promptText) {
   const passwordHash = bcrypt.hashSync(password, 10);
 
   try {
-    const stmt = db.prepare('INSERT INTO host_users (username, passwordHash) VALUES (?, ?)');
-    stmt.run(username, passwordHash);
+    await db.initSchema();
+    await db.run('INSERT INTO host_users (username, passwordHash) VALUES (?, ?)', [username, passwordHash]);
     console.log('✅ Host user created successfully:', username);
   } catch (err) {
-    if (err.message.includes('UNIQUE constraint failed')) {
+    if (String(err.message).includes('unique') && String(err.message).includes('host_users')) {
       console.log('⚠️ Host user already exists. No changes made.');
     } else {
       console.error('Error creating host user:', err.message);

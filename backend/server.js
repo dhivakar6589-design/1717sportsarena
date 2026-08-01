@@ -64,8 +64,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-env-file';
 
 // Auto-create the host account on first run (no need to run setup-host.js on a
 // deployed server). Uses ADMIN_USERNAME/ADMIN_PASSWORD env vars.
-function ensureHostAccount() {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM host_users').get().n;
+async function ensureHostAccount() {
+  const row = await db.get('SELECT COUNT(*) AS n FROM host_users');
+  const count = Number(row && row.n) || 0;
   if (count > 0) return;
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
@@ -73,11 +74,10 @@ function ensureHostAccount() {
     console.warn('⚠️  No host account exists. Set ADMIN_USERNAME and ADMIN_PASSWORD env vars, or run `node setup-host.js` in backend/.');
     return;
   }
-  db.prepare('INSERT INTO host_users (username, passwordHash) VALUES (?, ?)')
-    .run(username, bcrypt.hashSync(String(password), 10));
+  await db.run('INSERT INTO host_users (username, passwordHash) VALUES (?, ?)',
+    [username, bcrypt.hashSync(String(password), 10)]);
   console.log('✅ Auto-created host account:', username);
 }
-ensureHostAccount();
 
 // Security headers (CSP left at Express defaults because the site uses inline onclick handlers)
 app.use(helmet({
@@ -115,6 +115,11 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(isAllowed ? 204 : 403);
   next();
 });
+
+// The app sits behind Cloudflare + Render, so the rate limiter must trust the
+// X-Forwarded-For header to see real client IPs. Without this, express-rate-limit
+// logs validation errors and cannot identify users correctly.
+app.set('trust proxy', 1);
 
 // Rate limiting: 300 requests / 15 minutes per IP across the whole API
 const apiLimiter = rateLimit({
@@ -212,13 +217,13 @@ function requireHostAuth(req, res, next) {
 }
 
 // ================= HOST LOGIN =================
-app.post('/api/host/login', loginLimiter, (req, res) => {
+app.post('/api/host/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
   }
 
-  const user = db.prepare('SELECT * FROM host_users WHERE username = ?').get(username);
+  const user = await db.get('SELECT * FROM host_users WHERE username = ?', [username]);
   if (!user) return res.status(401).json({ error: 'Invalid username or password' });
 
   const validPassword = bcrypt.compareSync(password, user.passwordHash);
@@ -229,7 +234,7 @@ app.post('/api/host/login', loginLimiter, (req, res) => {
 });
 
 // ================= PUBLIC: create a booking =================
-app.post('/api/bookings', bookingLimiter, (req, res) => {
+app.post('/api/bookings', bookingLimiter, async (req, res) => {
   const { name, phone, date, sport, format, slots } = req.body;
 
   if (!name || !phone || !date || !sport || !format || !slots || !Array.isArray(slots) || slots.length === 0) {
@@ -275,9 +280,10 @@ app.post('/api/bookings', bookingLimiter, (req, res) => {
 
   // Check for slot conflicts against existing CONFIRMED bookings for same date
   // (both sports share the same play area, so slots block across sports)
-  const existing = db.prepare(
-    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed')`
-  ).all(date);
+  const existing = await db.all(
+    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed')`,
+    [date]
+  );
 
   const takenSlots = existing.flatMap(row => JSON.parse(row.slots));
   const conflict = slots.some(s => takenSlots.includes(s));
@@ -288,33 +294,34 @@ app.post('/api/bookings', bookingLimiter, (req, res) => {
   const id = 'TA1717-' + Date.now().toString().slice(-6);
   const createdAt = new Date().toISOString();
 
-  db.prepare(`
+  await db.run(`
     INSERT INTO bookings (id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, balanceStatus, createdAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending-payment', 'due', ?)
-  `).run(id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, advanceAmount, balanceAmount, createdAt);
+  `, [id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, advanceAmount, balanceAmount, createdAt]);
 
   res.json({ success: true, bookingId: id });
 });
 
 // ================= PUBLIC: mark booking as paid (called after payment success) =================
-app.post('/api/bookings/:id/confirm-payment', (req, res) => {
+app.post('/api/bookings/:id/confirm-payment', async (req, res) => {
   const { id } = req.params;
-  const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(id);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
-  db.prepare(`UPDATE bookings SET status = 'advance-paid' WHERE id = ?`).run(id);
+  await db.run(`UPDATE bookings SET status = 'advance-paid' WHERE id = ?`, [id]);
   res.json({ success: true });
 });
 
 // ================= PUBLIC: get already-booked slots for a date (for frontend slot grid) =================
 // Both sports share the same play area, so booked slots are shared across sports.
-app.get('/api/bookings/slots', (req, res) => {
+app.get('/api/bookings/slots', async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ error: 'date is required' });
 
-  const rows = db.prepare(
-    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed')`
-  ).all(date);
+  const rows = await db.all(
+    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed')`,
+    [date]
+  );
 
   const bookedSlots = rows.flatMap(row => JSON.parse(row.slots));
 
@@ -334,12 +341,12 @@ app.get('/api/bookings/slots', (req, res) => {
 });
 
 // ================= PUBLIC: look up bookings by phone number =================
-app.get('/api/bookings/lookup', (req, res) => {
+app.get('/api/bookings/lookup', async (req, res) => {
   const { phone } = req.query;
   if (!phone || !/^[0-9]{10}$/.test(phone)) {
     return res.status(400).json({ error: 'Valid 10-digit phone number required' });
   }
-  const rows = db.prepare('SELECT * FROM bookings WHERE phone = ? ORDER BY createdAt DESC').all(phone);
+  const rows = await db.all('SELECT * FROM bookings WHERE phone = ? ORDER BY createdAt DESC', [phone]);
   const bookings = rows.map(b => ({ ...b, slots: JSON.parse(b.slots) }));
   res.json({ bookings });
 });
@@ -347,14 +354,14 @@ app.get('/api/bookings/lookup', (req, res) => {
 // ================= PUBLIC: customer cancels their own booking =================
 // Verifies the phone number matches, then cancels. If the advance was already paid
 // and the slot is still in the future, the payment is refunded.
-app.post('/api/bookings/:id/cancel', (req, res) => {
+app.post('/api/bookings/:id/cancel', async (req, res) => {
   const { id } = req.params;
   const { phone } = req.body;
   if (!phone || !/^[0-9]{10}$/.test(phone)) {
     return res.status(400).json({ error: 'Valid 10-digit phone number required' });
   }
 
-  const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(id);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
   if (booking.phone !== phone) return res.status(403).json({ error: 'This phone number does not match the booking' });
   if (booking.status === 'cancelled') return res.status(400).json({ error: 'This booking is already cancelled' });
@@ -364,7 +371,7 @@ app.post('/api/bookings/:id/cancel', (req, res) => {
     return res.status(400).json({ error: 'This booking date has already passed' });
   }
 
-  db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`).run(id);
+  await db.run(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`, [id]);
 
   // Refund the advance for paid bookings that are still in the future
   if ((booking.status === 'advance-paid' || booking.status === 'completed') && booking.paymentId) {
@@ -375,7 +382,7 @@ app.post('/api/bookings/:id/cancel', (req, res) => {
 });
 
 // ================= PUBLIC: submit a review =================
-app.post('/api/reviews', reviewLimiter, (req, res) => {
+app.post('/api/reviews', reviewLimiter, async (req, res) => {
   const { name, rating, text } = req.body;
   if (!name || !rating || !text) return res.status(400).json({ error: 'Missing review details' });
   if (name.length > 100 || text.length > 2000) return res.status(400).json({ error: 'Review too long' });
@@ -383,34 +390,35 @@ app.post('/api/reviews', reviewLimiter, (req, res) => {
   if (!Number.isInteger(r) || r < 1 || r > 5) return res.status(400).json({ error: 'Invalid rating' });
 
   const createdAt = new Date().toISOString();
-  db.prepare('INSERT INTO reviews (name, rating, text, createdAt) VALUES (?, ?, ?, ?)').run(name, rating, text, createdAt);
+  await db.run('INSERT INTO reviews (name, rating, text, createdAt) VALUES (?, ?, ?, ?)',
+    [name, r, text, createdAt]);
   res.json({ success: true });
 });
 
 // ================= PUBLIC: get all reviews =================
-app.get('/api/reviews', (req, res) => {
-  const reviews = db.prepare('SELECT * FROM reviews ORDER BY createdAt DESC').all();
+app.get('/api/reviews', async (req, res) => {
+  const reviews = await db.all('SELECT * FROM reviews ORDER BY createdAt DESC');
   res.json(reviews);
 });
 
 // ================= HOST-ONLY: get all bookings (requires login token) =================
-app.get('/api/host/bookings', requireHostAuth, (req, res) => {
-  const rows = db.prepare('SELECT * FROM bookings ORDER BY createdAt DESC').all();
+app.get('/api/host/bookings', requireHostAuth, async (req, res) => {
+  const rows = await db.all('SELECT * FROM bookings ORDER BY createdAt DESC');
   const bookings = rows.map(b => ({ ...b, slots: JSON.parse(b.slots) }));
   res.json(bookings);
 });
 
 // ================= HOST-ONLY: update booking status (cancel) =================
-app.patch('/api/host/bookings/:id/status', requireHostAuth, (req, res) => {
+app.patch('/api/host/bookings/:id/status', requireHostAuth, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   if (!['pending-payment', 'advance-paid', 'cancelled', 'completed'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
-  const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(id);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
-  db.prepare('UPDATE bookings SET status = ? WHERE id = ?').run(status, id);
+  await db.run('UPDATE bookings SET status = ? WHERE id = ?', [status, id]);
 
   // When the host cancels a paid booking, refund the advance automatically
   if (status === 'cancelled' && (booking.status === 'advance-paid' || booking.status === 'completed') && booking.paymentId) {
@@ -421,36 +429,37 @@ app.patch('/api/host/bookings/:id/status', requireHostAuth, (req, res) => {
 });
 
 // ================= HOST-ONLY: mark balance collected =================
-app.patch('/api/host/bookings/:id/collect-balance', requireHostAuth, (req, res) => {
+app.patch('/api/host/bookings/:id/collect-balance', requireHostAuth, async (req, res) => {
   const { id } = req.params;
-  db.prepare(`UPDATE bookings SET balanceStatus = 'collected', status = 'completed' WHERE id = ?`).run(id);
+  await db.run(`UPDATE bookings SET balanceStatus = 'collected', status = 'completed' WHERE id = ?`, [id]);
   res.json({ success: true });
 });
 
 // ================= HOST-ONLY: upload a news/poster post =================
-app.post('/api/host/news', requireHostAuth, upload.single('image'), (req, res) => {
+app.post('/api/host/news', requireHostAuth, upload.single('image'), async (req, res) => {
   const { title, description } = req.body;
   if (!title) return res.status(400).json({ error: 'Title is required' });
 
   const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
   const createdAt = new Date().toISOString();
 
-  const result = db.prepare(
-    'INSERT INTO news_posts (title, description, imagePath, createdAt) VALUES (?, ?, ?, ?)'
-  ).run(title, description || '', imagePath, createdAt);
+  const result = await db.run(
+    'INSERT INTO news_posts (title, description, imagePath, createdAt) VALUES (?, ?, ?, ?) RETURNING id',
+    [title, description || '', imagePath, createdAt]
+  );
 
-  res.json({ success: true, id: result.lastInsertRowid });
+  res.json({ success: true, id: result.rows[0].id });
 });
 
 // ================= PUBLIC: get all news/poster posts =================
-app.get('/api/news', (req, res) => {
-  const posts = db.prepare('SELECT * FROM news_posts ORDER BY createdAt DESC').all();
+app.get('/api/news', async (req, res) => {
+  const posts = await db.all('SELECT * FROM news_posts ORDER BY createdAt DESC');
   res.json(posts);
 });
 
 // ================= HOST-ONLY: delete a news post =================
-app.delete('/api/host/news/:id', requireHostAuth, (req, res) => {
-  db.prepare('DELETE FROM news_posts WHERE id = ?').run(req.params.id);
+app.delete('/api/host/news/:id', requireHostAuth, async (req, res) => {
+  await db.run('DELETE FROM news_posts WHERE id = ?', [req.params.id]);
   res.json({ success: true });
 });
 
@@ -459,7 +468,7 @@ app.post('/api/payment/create-order', paymentLimiter, async (req, res) => {
   const { bookingId, amount } = req.body;
   if (!bookingId) return res.status(400).json({ error: 'bookingId is required' });
 
-  const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [bookingId]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
   if (booking.status !== 'pending-payment') return res.status(400).json({ error: 'Booking is not awaiting payment' });
   if (!amount || Number(amount) !== booking.advanceAmount) return res.status(400).json({ error: 'Invalid amount' });
@@ -482,17 +491,17 @@ app.post('/api/payment/create-order', paymentLimiter, async (req, res) => {
 async function refundPayment(bookingId, paymentId, note) {
   try {
     const refund = await razorpay.payments.refund(paymentId, { notes: { bookingId, reason: note } });
-    db.prepare(`UPDATE bookings SET refundStatus = ? WHERE id = ?`).run('refunded', bookingId);
+    await db.run(`UPDATE bookings SET refundStatus = ? WHERE id = ?`, ['refunded', bookingId]);
     console.log(`💸 Refund initiated for ${bookingId}: ${refund.id}`);
     return true;
   } catch (err) {
     console.error(`⚠️ Refund failed for ${bookingId}:`, err && err.message || err);
-    db.prepare(`UPDATE bookings SET refundStatus = 'failed' WHERE id = ?`).run(bookingId);
+    await db.run(`UPDATE bookings SET refundStatus = 'failed' WHERE id = ?`, [bookingId]);
     return false;
   }
 }
 
-app.post('/api/payment/verify', (req, res) => {
+app.post('/api/payment/verify', async (req, res) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature, bookingId } = req.body;
 
   const body = razorpay_order_id + '|' + razorpay_payment_id;
@@ -507,19 +516,20 @@ app.post('/api/payment/verify', (req, res) => {
     return res.status(400).json({ success: false, error: 'Payment verification failed' });
   }
 
-  const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [bookingId]);
   if (!booking) return res.status(404).json({ success: false, error: 'Booking not found' });
 
   // The slot must still be free — it was only held in 'pending-payment' state and
   // never blocked other customers. If someone else confirmed it first, cancel this
   // booking so the paid amount can be refunded.
-  const existing = db.prepare(
-    `SELECT slots FROM bookings WHERE date = ? AND id != ? AND status IN ('advance-paid', 'completed')`
-  ).all(booking.date, bookingId);
+  const existing = await db.all(
+    `SELECT slots FROM bookings WHERE date = ? AND id != ? AND status IN ('advance-paid', 'completed')`,
+    [booking.date, bookingId]
+  );
   const takenSlots = existing.flatMap(row => JSON.parse(row.slots));
   const conflict = JSON.parse(booking.slots).some(s => takenSlots.includes(s));
   if (conflict) {
-    db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`).run(bookingId);
+    await db.run(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`, [bookingId]);
     refundPayment(bookingId, razorpay_payment_id, 'Slot taken while customer was paying');
     return res.json({
       success: false,
@@ -528,84 +538,76 @@ app.post('/api/payment/verify', (req, res) => {
     });
   }
 
-  db.prepare(`UPDATE bookings SET status = 'advance-paid', paymentId = ? WHERE id = ?`).run(razorpay_payment_id, bookingId);
+  await db.run(`UPDATE bookings SET status = 'advance-paid', paymentId = ? WHERE id = ?`, [razorpay_payment_id, bookingId]);
   res.json({ success: true });
 });
 
 // ================= HOST-ONLY: change admin password (requires current password) =================
-app.post('/api/host/change-password', requireHostAuth, (req, res) => {
+app.post('/api/host/change-password', requireHostAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new passwords are required' });
   if (String(newPassword).length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
 
-  const user = db.prepare('SELECT * FROM host_users WHERE username = ?').get(req.hostUser.username);
+  const user = await db.get('SELECT * FROM host_users WHERE username = ?', [req.hostUser.username]);
   if (!user) return res.status(401).json({ error: 'Host account not found' });
 
   const validCurrent = bcrypt.compareSync(currentPassword, user.passwordHash);
   if (!validCurrent) return res.status(401).json({ error: 'Current password is incorrect' });
 
   const newHash = bcrypt.hashSync(String(newPassword), 10);
-  db.prepare('UPDATE host_users SET passwordHash = ? WHERE id = ?').run(newHash, user.id);
+  await db.run('UPDATE host_users SET passwordHash = ? WHERE id = ?', [newHash, user.id]);
   res.json({ success: true, message: 'Password changed successfully' });
 });
 
 // ================= HOST-ONLY: reset all bookings & revenue (requires re-entering password) =================
-app.post('/api/host/reset-data', requireHostAuth, (req, res) => {
+app.post('/api/host/reset-data', requireHostAuth, async (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password is required to confirm reset' });
 
-  const user = db.prepare('SELECT * FROM host_users WHERE username = ?').get(req.hostUser.username);
+  const user = await db.get('SELECT * FROM host_users WHERE username = ?', [req.hostUser.username]);
   if (!user) return res.status(401).json({ error: 'Host account not found' });
 
   const validPassword = bcrypt.compareSync(password, user.passwordHash);
   if (!validPassword) return res.status(401).json({ error: 'Incorrect password' });
 
   // Wipe bookings only — reviews and news posts are left untouched
-  db.prepare('DELETE FROM bookings').run();
+  await db.run('DELETE FROM bookings');
 
   res.json({ success: true, message: 'All bookings and revenue data have been reset.' });
 });
-
-// Start the server — HTTPS if SSL cert/key paths are provided in backend/.env
-const SSL_KEY_PATH = process.env.SSL_KEY_PATH;
-const SSL_CERT_PATH = process.env.SSL_CERT_PATH;
 
 // Automatically cancel bookings whose advance was never paid (e.g. the customer
 // closed the checkout popup). Runs every 5 minutes.
 const PENDING_PAYMENT_TTL_MIN = 30;
 setInterval(() => {
   const cutoff = new Date(Date.now() - PENDING_PAYMENT_TTL_MIN * 60 * 1000).toISOString();
-  db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE status = 'pending-payment' AND createdAt < ?`).run(cutoff);
+  db.run(`UPDATE bookings SET status = 'cancelled' WHERE status = 'pending-payment' AND createdAt < ?`, [cutoff])
+    .catch(err => console.error('⚠️ TTL cleanup failed:', err.message));
 }, 5 * 60 * 1000);
 
-// ---- Daily SQLite backup (keeps the last 7 copies) ----
-const BACKUP_DIR = path.join(process.env.DATA_DIR || __dirname, 'backups');
-if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+async function startServer() {
+  await db.initSchema();
+  await ensureHostAccount();
 
-function backupDatabase() {
-  const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
-  const dest = path.join(BACKUP_DIR, `turf-${ts}.db`);
-  db.backup(dest)
-    .then(() => {
-      console.log(`💾 Database backed up to ${dest}`);
-      const files = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('turf-')).sort();
-      while (files.length > 7) fs.unlinkSync(path.join(BACKUP_DIR, files.shift()));
-    })
-    .catch(err => console.error('⚠️ Database backup failed:', err.message));
+  // Start the server — HTTPS if SSL cert/key paths are provided in backend/.env
+  const SSL_KEY_PATH = process.env.SSL_KEY_PATH;
+  const SSL_CERT_PATH = process.env.SSL_CERT_PATH;
+
+  if (SSL_KEY_PATH && SSL_CERT_PATH) {
+    https.createServer({
+      key: fs.readFileSync(SSL_KEY_PATH),
+      cert: fs.readFileSync(SSL_CERT_PATH)
+    }, app).listen(PORT, () => {
+      console.log(`🔒 1717 Sports Arena backend (HTTPS) running at https://localhost:${PORT}`);
+    });
+  } else {
+    http.createServer(app).listen(PORT, () => {
+      console.log(`🚀 1717 Sports Arena backend running at http://localhost:${PORT}`);
+    });
+  }
 }
 
-setInterval(backupDatabase, 24 * 60 * 60 * 1000);
-backupDatabase();
-
-if (SSL_KEY_PATH && SSL_CERT_PATH) {
-  https.createServer({
-    key: fs.readFileSync(SSL_KEY_PATH),
-    cert: fs.readFileSync(SSL_CERT_PATH)
-  }, app).listen(PORT, () => {
-    console.log(`🔒 1717 Sports Arena backend (HTTPS) running at https://localhost:${PORT}`);
-  });
-} else {
-  http.createServer(app).listen(PORT, () => {
-    console.log(`🚀 1717 Sports Arena backend running at http://localhost:${PORT}`);
-  });
-}
+startServer().catch(err => {
+  console.error('❌ Failed to start server:', err);
+  process.exit(1);
+});

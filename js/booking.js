@@ -87,12 +87,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const sport = getSelectedSport();
     let bookedSlots = [];
+    let blockedSlots = [];
     let pastSlots = [];
 
     try {
       const res = await fetch(`${API_BASE}/bookings/slots?date=${selectedDate}&sport=${sport}`);
       const data = await res.json();
       bookedSlots = data.bookedSlots || [];
+      blockedSlots = data.blockedSlots || [];
       pastSlots = data.pastSlots || [];
     } catch (err) {
       slotGrid.innerHTML = '<p style="color:#ff5c5c; font-size:13px;">Could not load slots. Is the server running?</p>';
@@ -110,15 +112,19 @@ document.addEventListener('DOMContentLoaded', () => {
       const label = `${start} - ${end}`;
       const price = getPriceForHour(h);
       const isBooked = bookedSlots.includes(label);
+      const isBlocked = blockedSlots.includes(label);
       const isPast = (isToday && h * 60 <= nowMinutes) || pastSlots.includes(label);
+      const disabled = isBooked || isBlocked || isPast;
 
       const chip = document.createElement('div');
-      chip.className = 'slot-chip' + (isBooked || isPast ? ' disabled' : '');
+      chip.className = 'slot-chip' + (disabled ? ' disabled' : '');
       chip.dataset.label = label;
       chip.innerHTML = `${to12HourLabel(h)}<br><small>₹${price}/hr</small>`;
-      if (isPast) chip.title = 'This slot has already started';
+      if (isBlocked) chip.title = 'Unavailable — turf closed/blocked by host';
+      else if (isPast) chip.title = 'This slot has already started';
+      else if (isBooked) chip.title = 'Already booked';
 
-      if (!isBooked && !isPast) {
+      if (!disabled) {
         chip.addEventListener('click', () => {
           if (chip.classList.contains('disabled')) return;
           chip.classList.toggle('selected');

@@ -202,6 +202,17 @@ function localDateISO(d = new Date()) {
   return `${y}-${m}-${day}`;
 }
 
+// ---------- HELPER: blocked (host-unavailable) slots for a date ----------
+async function getBlockedSlots(date) {
+  const row = await db.get('SELECT slots FROM blocked_slots WHERE date = ?', [date]);
+  if (!row || !row.slots) return [];
+  try {
+    return JSON.parse(row.slots);
+  } catch (err) {
+    return [];
+  }
+}
+
 // ---------- HELPER: verify host login token ----------
 function requireHostAuth(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -291,6 +302,13 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
     return res.status(409).json({ error: 'One or more selected slots are already booked' });
   }
 
+  // Reject slots the host has blocked (turf unavailable / other appointment)
+  const blocked = await getBlockedSlots(date);
+  const blockedConflict = slots.some(s => blocked.includes(s));
+  if (blockedConflict) {
+    return res.status(409).json({ error: 'One or more selected slots are unavailable (blocked by the turf). Please pick different slots.' });
+  }
+
   const id = 'TA1717-' + Date.now().toString().slice(-6);
   const createdAt = new Date().toISOString();
 
@@ -324,6 +342,7 @@ app.get('/api/bookings/slots', async (req, res) => {
   );
 
   const bookedSlots = rows.flatMap(row => JSON.parse(row.slots));
+  const blockedSlots = await getBlockedSlots(date);
 
   // For today, also flag slots whose start time has already passed
   const pastSlots = [];
@@ -337,7 +356,7 @@ app.get('/api/bookings/slots', async (req, res) => {
     }
   }
 
-  res.json({ bookedSlots, pastSlots });
+  res.json({ bookedSlots, blockedSlots, pastSlots });
 });
 
 // ================= PUBLIC: look up bookings by phone number =================
@@ -445,6 +464,44 @@ app.delete('/api/host/bookings/:id', requireHostAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+// ================= HOST-ONLY: blocked slots (turf unavailability) =================
+// GET returns all dates that have blocked slots; POST replaces the set for one date.
+app.get('/api/host/blocked-slots', requireHostAuth, async (req, res) => {
+  const rows = await db.all('SELECT date, slots FROM blocked_slots ORDER BY date');
+  const dates = rows.map(r => ({ date: r.date, slots: JSON.parse(r.slots || '[]') }));
+  res.json({ dates });
+});
+
+app.post('/api/host/blocked-slots', requireHostAuth, async (req, res) => {
+  const { date, slots } = req.body;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'A valid date is required' });
+  }
+  if (!Array.isArray(slots)) {
+    return res.status(400).json({ error: 'slots must be an array' });
+  }
+
+  // Validate every label so garbage can't sneak in
+  for (const label of slots) {
+    const parsed = parseSlotLabel(label);
+    if (!parsed) return res.status(400).json({ error: `Invalid slot: ${label}` });
+  }
+
+  const unique = [...new Set(slots)];
+  if (unique.length === 0) {
+    // Empty array means "unblock the whole day"
+    await db.run('DELETE FROM blocked_slots WHERE date = ?', [date]);
+    return res.json({ success: true, date, slots: [] });
+  }
+
+  await db.run(`
+    INSERT INTO blocked_slots (date, slots) VALUES (?, ?)
+    ON CONFLICT (date) DO UPDATE SET slots = excluded.slots
+  `, [date, JSON.stringify(unique)]);
+
+  res.json({ success: true, date, slots: unique });
+});
+
 // ================= HOST-ONLY: mark balance collected =================
 app.patch('/api/host/bookings/:id/collect-balance', requireHostAuth, async (req, res) => {
   const { id } = req.params;
@@ -537,17 +594,18 @@ app.post('/api/payment/verify', async (req, res) => {
   if (!booking) return res.status(404).json({ success: false, error: 'Booking not found' });
 
   // The slot must still be free — it was only held in 'pending-payment' state and
-  // never blocked other customers. If someone else confirmed it first, cancel this
-  // booking so the paid amount can be refunded.
+  // never blocked other customers. If someone else confirmed it first (or the host
+  // blocked it), cancel this booking so the paid amount can be refunded.
   const existing = await db.all(
     `SELECT slots FROM bookings WHERE date = ? AND id != ? AND status IN ('advance-paid', 'completed')`,
     [booking.date, bookingId]
   );
   const takenSlots = existing.flatMap(row => JSON.parse(row.slots));
-  const conflict = JSON.parse(booking.slots).some(s => takenSlots.includes(s));
+  const blocked = await getBlockedSlots(booking.date);
+  const conflict = JSON.parse(booking.slots).some(s => takenSlots.includes(s) || blocked.includes(s));
   if (conflict) {
     await db.run(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`, [bookingId]);
-    refundPayment(bookingId, razorpay_payment_id, 'Slot taken while customer was paying');
+    refundPayment(bookingId, razorpay_payment_id, 'Slot taken or blocked while customer was paying');
     return res.json({
       success: false,
       conflict: true,

@@ -84,6 +84,13 @@
   #loginBox .pass-toggle:hover { opacity: 1; }
   .table-wrap { overflow-x:auto; }
 
+  #blockSlotGrid .slot-chip.blocked {
+    background: rgba(255,92,92,0.25);
+    border-color: #ff5c5c;
+    color: #ff8c8c;
+    text-decoration: line-through;
+  }
+
   .reset-modal-overlay {
     display: none;
     position: fixed;
@@ -189,6 +196,24 @@
       <thead><tr><th>Time Slot</th><th>Times Booked</th></tr></thead>
       <tbody></tbody>
     </table>
+  </div>
+
+  <h2 style="margin-top:40px;">Block Slots / Unavailability</h2>
+  <div class="booking-form" style="max-width:640px; margin-bottom:10px;">
+    <div class="form-group">
+      <label for="blockDate">Date</label>
+      <input type="date" id="blockDate" min="2026-01-01">
+    </div>
+    <div class="form-group">
+      <label>Select the slots to block (turf closed, other appointments, host unavailable)</label>
+      <div id="blockSlotGrid" class="slot-grid"></div>
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+      <button class="btn-primary" style="padding:10px 22px; border:none;" onclick="blockAllSlots()">Block Whole Day</button>
+      <button class="btn-secondary" style="padding:10px 22px;" onclick="clearAllSlots()">Clear All</button>
+      <button class="btn-primary" style="padding:10px 22px; background:var(--gold); border:none;" onclick="saveBlockedSlots()">Save Blocks</button>
+    </div>
+    <div id="blockMsg" class="form-msg"></div>
   </div>
 
   <h2 style="margin-top:40px;">Bookings & Slot Tracking</h2>
@@ -514,6 +539,102 @@ async function collectBalance(id) {
     loadData();
   } catch (err) {}
 }
+
+// ================= Block Slots / Unavailability =================
+let blockSlots = [];
+
+function blockDateISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function renderBlockGrid() {
+  const grid = document.getElementById('blockSlotGrid');
+  grid.innerHTML = '';
+  for (let h = 6; h < 22; h++) {
+    const label = `${String(h).padStart(2, '0')}:00 - ${String(h + 1).padStart(2, '0')}:00`;
+    const chip = document.createElement('div');
+    chip.className = 'slot-chip' + (blockSlots.includes(label) ? ' blocked' : '');
+    chip.dataset.label = label;
+    chip.textContent = to12HourDisplay(label);
+    chip.addEventListener('click', () => {
+      if (blockSlots.includes(label)) {
+        blockSlots = blockSlots.filter(s => s !== label);
+        chip.classList.remove('blocked');
+      } else {
+        blockSlots.push(label);
+        chip.classList.add('blocked');
+      }
+    });
+    grid.appendChild(chip);
+  }
+}
+
+function blockAllSlots() {
+  blockSlots = [];
+  for (let h = 6; h < 22; h++) {
+    blockSlots.push(`${String(h).padStart(2, '0')}:00 - ${String(h + 1).padStart(2, '0')}:00`);
+  }
+  renderBlockGrid();
+}
+
+function clearAllSlots() {
+  blockSlots = [];
+  renderBlockGrid();
+}
+
+async function loadBlockedSlotsForDate(date) {
+  try {
+    const res = await authFetch(`${API_BASE}/host/blocked-slots`);
+    const data = await res.json();
+    const match = (data.dates || []).find(d => d.date === date);
+    blockSlots = match ? match.slots.slice() : [];
+    renderBlockGrid();
+  } catch (err) {}
+}
+
+async function saveBlockedSlots() {
+  const date = document.getElementById('blockDate').value;
+  const msg = document.getElementById('blockMsg');
+  if (!date) {
+    msg.style.color = '#ff5c5c';
+    msg.textContent = 'Pick a date first.';
+    return;
+  }
+  try {
+    const res = await authFetch(`${API_BASE}/host/blocked-slots`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, slots: blockSlots })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      msg.style.color = '#ff5c5c';
+      msg.textContent = data.error || 'Could not save blocks.';
+      return;
+    }
+    msg.style.color = '#2ecc40';
+    msg.textContent = blockSlots.length === 0
+      ? `✅ ${date} is now fully open for booking.`
+      : `✅ ${blockSlots.length} slot(s) blocked on ${date}.`;
+    loadBlockedSlotsForDate(date);
+  } catch (err) {
+    msg.style.color = '#ff5c5c';
+    msg.textContent = 'Could not connect to server.';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const d = new Date();
+  document.getElementById('blockDate').value = blockDateISO(d);
+  renderBlockGrid();
+  loadBlockedSlotsForDate(blockDateISO(d));
+  document.getElementById('blockDate').addEventListener('change', (e) => {
+    loadBlockedSlotsForDate(e.target.value);
+  });
+});
 
 document.getElementById('newsForm').addEventListener('submit', async (e) => {
   e.preventDefault();

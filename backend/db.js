@@ -100,6 +100,16 @@ async function initSchema() {
       createdAt TEXT NOT NULL
     )
   `);
+
+  // Slots the host has blocked for a date (host unavailability / other appointments).
+  // slots is a JSON array of 24h labels, e.g. ["06:00 - 07:00","18:00 - 19:00"].
+  // One row per date; an empty/missing row means the whole day is open.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blocked_slots (
+      date TEXT PRIMARY KEY,
+      slots TEXT NOT NULL
+    )
+  `);
 }
 
 module.exports = { pool, initSchema, get, all, run };

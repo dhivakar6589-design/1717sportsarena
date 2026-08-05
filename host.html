@@ -348,7 +348,8 @@ async function checkLogin() {
 function logout() {
   sessionStorage.removeItem('hostToken');
   hostToken = null;
-  location.reload();
+  document.getElementById('loginBox').style.display = 'block';
+  document.getElementById('dashboard').style.display = 'none';
 }
 
 // Convert a 24h API slot label like "14:00 - 15:00" to 12-hour AM/PM display form
@@ -381,7 +382,7 @@ async function authFetch(url, options = {}) {
     }
   });
   if (res.status === 401 || res.status === 403) {
-    logout();
+    if (hostToken) logout();
     throw new Error('Session expired');
   }
   return res;

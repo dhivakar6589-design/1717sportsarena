@@ -388,7 +388,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.cancelMyBooking = async function (id) {
     const phone = lookupPhone.value.trim();
-    if (!confirm('Cancel this booking? If you already paid, the advance will be refunded.')) return;
+    if (!confirm('Cancel this booking? The advance payment is non-refundable and will NOT be returned.')) return;
     try {
       const res = await fetch(`${API_BASE}/bookings/${id}/cancel`, {
         method: 'POST',

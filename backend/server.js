@@ -371,8 +371,8 @@ app.get('/api/bookings/lookup', async (req, res) => {
 });
 
 // ================= PUBLIC: customer cancels their own booking =================
-// Verifies the phone number matches, then cancels. If the advance was already paid
-// and the slot is still in the future, the payment is refunded.
+// Verifies the phone number matches, then cancels. Advance payments are
+// non-refundable (announced policy), so no Razorpay refund is triggered.
 app.post('/api/bookings/:id/cancel', async (req, res) => {
   const { id } = req.params;
   const { phone } = req.body;
@@ -392,10 +392,8 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
 
   await db.run(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`, [id]);
 
-  // Refund the advance for paid bookings that are still in the future
-  if ((booking.status === 'advance-paid' || booking.status === 'completed') && booking.paymentId) {
-    refundPayment(id, booking.paymentId, 'Customer cancelled the booking');
-  }
+  // Advance payments are non-refundable — cancelling does NOT trigger a refund,
+  // even if the advance was already paid. The slot is freed up.
 
   res.json({ success: true, message: 'Booking cancelled.' });
 });
@@ -439,11 +437,8 @@ app.patch('/api/host/bookings/:id/status', requireHostAuth, async (req, res) => 
 
   await db.run('UPDATE bookings SET status = ? WHERE id = ?', [status, id]);
 
-  // When the host cancels a paid booking, refund the advance automatically
-  if (status === 'cancelled' && (booking.status === 'advance-paid' || booking.status === 'completed') && booking.paymentId) {
-    refundPayment(id, booking.paymentId, 'Host cancelled the booking');
-    return res.json({ success: true, refund: 'initiated' });
-  }
+  // Advance payments are non-refundable (announced policy) — the host cancelling a
+  // booking does NOT trigger a Razorpay refund. The advance is kept.
   res.json({ success: true });
 });
 
@@ -455,9 +450,9 @@ app.delete('/api/host/bookings/:id', requireHostAuth, async (req, res) => {
   const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
-  // Never silently delete a paid booking — cancel+refund instead so money isn't lost
+  // Never silently delete a paid booking — cancel instead so the advance (non-refundable) stays accounted for
   if (booking.status === 'advance-paid' || booking.status === 'completed') {
-    return res.status(409).json({ error: 'Paid bookings cannot be deleted. Cancel the slot instead to trigger a refund.' });
+    return res.status(409).json({ error: 'Paid bookings cannot be deleted. Cancel the slot instead.' });
   }
 
   await db.run('DELETE FROM bookings WHERE id = ?', [id]);

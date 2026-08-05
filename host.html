@@ -223,7 +223,7 @@
         <tr>
           <th>ID</th><th>Name</th><th>Phone</th><th>Date</th>
           <th>Sport</th><th>Slots</th><th>Total</th><th>Advance Paid</th><th>Balance Due</th>
-          <th>Booking Status</th><th>Balance Status</th><th>Refund</th><th>Action</th>
+          <th>Booking Status</th><th>Balance Status</th><th>Action</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -476,7 +476,6 @@ async function loadData() {
       <td>₹${b.balanceAmount}</td>
       <td class="status-${statusClass}">${b.status}</td>
       <td class="status-${balanceClass}">${b.balanceStatus}</td>
-      <td>${b.refundStatus === 'refunded' ? 'Refunded' : b.refundStatus === 'failed' ? 'Refund Failed' : '—'}</td>
       <td>
         ${b.status === 'pending-payment' ? `<button class="action btn-cancel" onclick="confirmDelete('${b.id}')">Delete</button>` : ''}
         ${b.status === 'advance-paid' ? `<button class="action btn-cancel" onclick="confirmCancel('${b.id}')">Cancel Slot</button>` : ''}
@@ -511,7 +510,7 @@ async function updateStatus(id, status) {
 }
 
 function confirmCancel(id) {
-  if (confirm('Are you sure you want to cancel this booking? This will free up the slot for other customers. If the advance was already paid, a refund will be initiated automatically.')) {
+  if (confirm('Are you sure you want to cancel this booking? This will free up the slot for other customers. The advance payment is non-refundable and will NOT be returned.')) {
     updateStatus(id, 'cancelled');
   }
 }

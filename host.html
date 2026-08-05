@@ -477,9 +477,9 @@ async function loadData() {
       <td class="status-${statusClass}">${b.status}</td>
       <td class="status-${balanceClass}">${b.balanceStatus}</td>
       <td>
-        ${b.status === 'pending-payment' ? `<button class="action btn-cancel" onclick="confirmDelete('${b.id}')">Delete</button>` : ''}
         ${b.status === 'advance-paid' ? `<button class="action btn-cancel" onclick="confirmCancel('${b.id}')">Cancel Slot</button>` : ''}
         ${b.balanceStatus === 'due' && b.status !== 'cancelled' && b.status !== 'pending-payment' ? `<button class="action btn-secondary" onclick="collectBalance('${b.id}')">Mark Balance Collected</button>` : ''}
+        <button class="action btn-cancel" onclick="confirmDelete('${b.id}')">Delete</button>
       </td>
     `;
     tbody.appendChild(row);
@@ -528,7 +528,7 @@ async function deleteBooking(id) {
 }
 
 function confirmDelete(id) {
-  if (confirm('Delete this booking? The advance was never collected, so it will be removed permanently and the slot freed up.')) {
+  if (confirm('Permanently delete this booking? The slot will be freed up and the booking removed from all records. The advance is non-refundable. This cannot be undone.')) {
     deleteBooking(id);
   }
 }

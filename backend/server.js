@@ -443,17 +443,13 @@ app.patch('/api/host/bookings/:id/status', requireHostAuth, async (req, res) => 
 });
 
 // ================= HOST-ONLY: delete a booking entirely =================
-// Removes the booking from the system (no refund, no revenue impact). Used to
-// drop bookings whose advance was never collected (e.g. abandoned pending-payment).
+// Removes the booking from the system. Used to drop a customer's booking (paid or
+// unpaid) completely — the slot is freed up and the record is gone. The advance is
+// non-refundable (announced policy), so no Razorpay refund is triggered.
 app.delete('/api/host/bookings/:id', requireHostAuth, async (req, res) => {
   const { id } = req.params;
   const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
-
-  // Never silently delete a paid booking — cancel instead so the advance (non-refundable) stays accounted for
-  if (booking.status === 'advance-paid' || booking.status === 'completed') {
-    return res.status(409).json({ error: 'Paid bookings cannot be deleted. Cancel the slot instead.' });
-  }
 
   await db.run('DELETE FROM bookings WHERE id = ?', [id]);
   res.json({ success: true });

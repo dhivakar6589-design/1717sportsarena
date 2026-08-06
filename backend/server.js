@@ -167,6 +167,7 @@ app.get('/', (req, res) => res.sendFile(path.join(SITE_ROOT, 'index.html')));
 app.get('/host.html', (req, res) => res.sendFile(path.join(SITE_ROOT, 'host.html')));
 app.get('/robots.txt', (req, res) => res.sendFile(path.join(SITE_ROOT, 'robots.txt')));
 app.get('/sitemap.xml', (req, res) => res.sendFile(path.join(SITE_ROOT, 'sitemap.xml')));
+app.get('/google3bcb7d648004f451.html', (req, res) => res.sendFile(path.join(SITE_ROOT, 'google3bcb7d648004f451.html')));
 app.use('/css', express.static(path.join(SITE_ROOT, 'css')));
 app.use('/js', express.static(path.join(SITE_ROOT, 'js')));
 app.use('/images', express.static(path.join(SITE_ROOT, 'images')));

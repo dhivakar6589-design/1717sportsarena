@@ -9,6 +9,7 @@ const http = require('http');
 const https = require('https');
 require('dotenv').config();
 const db = require('./db');
+const { sendWhatsApp } = require('./whatsapp');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -164,6 +165,8 @@ const reviewLimiter = rateLimit({
 const SITE_ROOT = path.join(__dirname, '..');
 app.get('/', (req, res) => res.sendFile(path.join(SITE_ROOT, 'index.html')));
 app.get('/host.html', (req, res) => res.sendFile(path.join(SITE_ROOT, 'host.html')));
+app.get('/robots.txt', (req, res) => res.sendFile(path.join(SITE_ROOT, 'robots.txt')));
+app.get('/sitemap.xml', (req, res) => res.sendFile(path.join(SITE_ROOT, 'sitemap.xml')));
 app.use('/css', express.static(path.join(SITE_ROOT, 'css')));
 app.use('/js', express.static(path.join(SITE_ROOT, 'js')));
 app.use('/images', express.static(path.join(SITE_ROOT, 'images')));
@@ -316,6 +319,16 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
     INSERT INTO bookings (id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, balanceStatus, createdAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending-payment', 'due', ?)
   `, [id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, advanceAmount, balanceAmount, createdAt]);
+
+  // Alert the host on WhatsApp (best-effort; silently skipped if not configured)
+  await sendWhatsApp(
+    `🔔 NEW BOOKING REQUEST (${id})\n\n` +
+    `${name} | ${phone}\n` +
+    `${sport.toUpperCase()} (${format}) — ${date}\n` +
+    `Slots: ${slots.join(', ')}\n` +
+    `Advance due: ₹${advanceAmount} | Balance: ₹${balanceAmount}\n` +
+    `Waiting for payment confirmation.`
+  );
 
   res.json({ success: true, bookingId: id });
 });
@@ -605,6 +618,16 @@ app.post('/api/payment/verify', async (req, res) => {
   }
 
   await db.run(`UPDATE bookings SET status = 'advance-paid', paymentId = ? WHERE id = ?`, [razorpay_payment_id, bookingId]);
+
+  // Payment received → confirm the booking to the host on WhatsApp
+  await sendWhatsApp(
+    `✅ PAYMENT CONFIRMED (${bookingId})\n\n` +
+    `${booking.name} | ${booking.phone}\n` +
+    `${booking.sport.toUpperCase()} (${booking.format}) — ${booking.date}\n` +
+    `Slots: ${JSON.parse(booking.slots).join(', ')}\n` +
+    `Advance paid: ₹${booking.advanceAmount} | Balance due at turf: ₹${booking.balanceAmount}`
+  );
+
   res.json({ success: true });
 });
 

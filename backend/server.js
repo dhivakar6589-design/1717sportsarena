@@ -627,6 +627,21 @@ app.post('/api/payment/create-order', paymentLimiter, async (req, res) => {
   if (booking.status !== 'pending-payment') return res.status(400).json({ error: 'Booking is not awaiting payment' });
   if (!amount || Number(amount) !== booking.advanceAmount) return res.status(400).json({ error: 'Invalid amount' });
 
+  // Re-check the slot BEFORE the customer pays. If another customer confirmed it
+  // while this one was filling the payment page, cancel this booking here so the
+  // second customer is never charged an advance for a slot they can't have.
+  const existing = await db.all(
+    `SELECT slots FROM bookings WHERE date = ? AND id != ? AND status IN ('advance-paid', 'completed')`,
+    [booking.date, bookingId]
+  );
+  const takenSlots = existing.flatMap(row => JSON.parse(row.slots));
+  const blocked = await getBlockedSlots(booking.date);
+  const lostSlot = JSON.parse(booking.slots).some(s => takenSlots.includes(s) || blocked.includes(s));
+  if (lostSlot) {
+    await db.run(`UPDATE bookings SET status = 'cancelled' WHERE id = ?`, [bookingId]);
+    return res.status(409).json({ error: 'Sorry, that slot was just booked by someone else. No payment was taken. Please pick a different slot.' });
+  }
+
   try {
     const order = await razorpay.orders.create({
       amount: booking.advanceAmount * 100,

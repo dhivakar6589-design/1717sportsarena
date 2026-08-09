@@ -246,7 +246,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!orderRes.ok) {
           msg.style.color = '#ff5c5c';
-          msg.textContent = 'Could not start payment. Please try again.';
+          msg.textContent = orderData.error || 'Could not start payment. Please try again.';
+          generateSlotGrid();
           return;
         }
 

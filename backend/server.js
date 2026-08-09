@@ -507,6 +507,81 @@ app.post('/api/host/blocked-slots', requireHostAuth, async (req, res) => {
   res.json({ success: true, date, slots: unique });
 });
 
+// ================= HOST-ONLY: manual booking for a customer (no online advance) =================
+// Lets the host book a slot for a customer who pays offline (cash/UPI in person).
+// The booking is created as 'advance-paid' with a ₹0 advance, so it blocks the slot
+// on the main site immediately, appears in slot tracking, and frees up if cancelled.
+app.post('/api/host/bookings', requireHostAuth, async (req, res) => {
+  const { name, phone, date, sport, format, slots } = req.body;
+
+  if (!name || !phone || !date || !sport || !format || !slots || !Array.isArray(slots) || slots.length === 0) {
+    return res.status(400).json({ error: 'Missing or invalid booking details' });
+  }
+  if (!/^[0-9]{10}$/.test(phone)) {
+    return res.status(400).json({ error: 'Invalid phone number' });
+  }
+  if (!VALID_SPORTS.includes(sport) || !VALID_FORMATS.includes(format)) {
+    return res.status(400).json({ error: 'Invalid sport or format' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'Invalid date' });
+  }
+  if (slots.length > 16) {
+    return res.status(400).json({ error: 'Too many slots selected' });
+  }
+
+  // Amounts are computed server-side; client-supplied amounts are ignored
+  let totalAmount = 0;
+  for (const label of slots) {
+    const parsed = parseSlotLabel(label);
+    if (!parsed) return res.status(400).json({ error: 'Invalid slot format' });
+    const price = getPriceForHour(parsed.start);
+    if (price === null) return res.status(400).json({ error: 'Slot outside opening hours' });
+    totalAmount += price;
+  }
+
+  // Past slots on today's date can never be booked
+  if (date === localDateISO()) {
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const pastSlot = slots.find(label => {
+      const parsed = parseSlotLabel(label);
+      return parsed.start * 60 <= nowMinutes;
+    });
+    if (pastSlot) {
+      return res.status(400).json({ error: 'One or more selected slots have already started. Please choose a future slot.' });
+    }
+  }
+
+  // Check for slot conflicts against existing CONFIRMED bookings for same date
+  const existing = await db.all(
+    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed')`,
+    [date]
+  );
+  const takenSlots = existing.flatMap(row => JSON.parse(row.slots));
+  const conflict = slots.some(s => takenSlots.includes(s));
+  if (conflict) {
+    return res.status(409).json({ error: 'One or more selected slots are already booked' });
+  }
+
+  // Reject slots the host has blocked
+  const blocked = await getBlockedSlots(date);
+  const blockedConflict = slots.some(s => blocked.includes(s));
+  if (blockedConflict) {
+    return res.status(409).json({ error: 'One or more selected slots are blocked (unavailable). Pick different slots.' });
+  }
+
+  const id = 'TA1717-' + Date.now().toString().slice(-6);
+  const createdAt = new Date().toISOString();
+
+  await db.run(`
+    INSERT INTO bookings (id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, balanceStatus, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'advance-paid', 'due', ?)
+  `, [id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, totalAmount, createdAt]);
+
+  res.json({ success: true, bookingId: id });
+});
+
 // ================= HOST-ONLY: mark balance collected =================
 app.patch('/api/host/bookings/:id/collect-balance', requireHostAuth, async (req, res) => {
   const { id } = req.params;

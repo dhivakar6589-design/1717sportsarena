@@ -161,6 +161,45 @@
     <div id="blockMsg" class="form-msg"></div>
   </div>
 
+  <h2 style="margin-top:40px;">Book Slot for Customer (No Advance)</h2>
+  <div class="booking-form" style="max-width:640px; margin-bottom:10px;">
+    <div class="form-group">
+      <label for="hostBookingDate">Date</label>
+      <input type="date" id="hostBookingDate" min="2026-01-01">
+    </div>
+    <div class="form-group">
+      <label>Sport</label>
+      <div style="display:flex; gap:18px;">
+        <label><input type="radio" name="hostSport" value="football" checked> Football</label>
+        <label><input type="radio" name="hostSport" value="cricket"> Cricket</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Format</label>
+      <div style="display:flex; gap:18px;">
+        <label><input type="radio" name="hostFormat" value="5s" checked> 5's</label>
+        <label><input type="radio" name="hostFormat" value="6s"> 6's</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="hostBookingName">Customer Name</label>
+      <input type="text" id="hostBookingName" placeholder="Full name">
+    </div>
+    <div class="form-group">
+      <label for="hostBookingPhone">Phone Number (10 digits)</label>
+      <input type="tel" id="hostBookingPhone" placeholder="10-digit mobile number" maxlength="10">
+    </div>
+    <div class="form-group">
+      <label>Select slots (tap one or more)</label>
+      <div id="hostBookingGrid" class="slot-grid"></div>
+    </div>
+    <div id="hostBookingSummary" class="form-msg"></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+      <button class="btn-primary" style="padding:10px 22px; border:none;" onclick="submitHostBooking()">Create Booking (No Advance)</button>
+    </div>
+    <div id="hostBookingMsg" class="form-msg"></div>
+  </div>
+
   <h2 style="margin-top:40px;">Bookings & Slot Tracking</h2>
   <div class="table-wrap">
     <table id="bookingsTable">
@@ -635,6 +674,142 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('blockDate').addEventListener('change', (e) => {
     loadBlockedSlotsForDate(e.target.value);
   });
+});
+
+// ================= Book Slot for Customer (manual booking, no online advance) =================
+let hostSelectedSlots = [];
+
+function hostBookingDateISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function hostGetPriceForHour(hour) {
+  if (hour >= 6 && hour < 14) return 500;
+  if (hour >= 14 && hour < 18) return 750;
+  if (hour >= 18 && hour < 22) return 1000;
+  return 0;
+}
+
+async function renderHostBookingGrid() {
+  const grid = document.getElementById('hostBookingGrid');
+  const date = document.getElementById('hostBookingDate').value;
+  hostSelectedSlots = [];
+  updateHostBookingSummary();
+  if (!date) {
+    grid.innerHTML = '<p style="color:var(--gray); font-size:13px;">Pick a date first.</p>';
+    return;
+  }
+
+  let bookedSlots = [], blockedSlots = [], pastSlots = [];
+  try {
+    const res = await fetch(`${API_BASE}/bookings/slots?date=${date}`);
+    const data = await res.json();
+    bookedSlots = data.bookedSlots || [];
+    blockedSlots = data.blockedSlots || [];
+    pastSlots = data.pastSlots || [];
+  } catch (err) {
+    grid.innerHTML = '<p style="color:#ff5c5c; font-size:13px;">Could not load availability.</p>';
+    return;
+  }
+
+  const now = new Date();
+  const isToday = date === hostBookingDateISO(now);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  grid.innerHTML = '';
+  for (let h = 6; h < 22; h++) {
+    const label = `${String(h).padStart(2, '0')}:00 - ${String(h + 1).padStart(2, '0')}:00`;
+    const price = hostGetPriceForHour(h);
+    const isBooked = bookedSlots.includes(label);
+    const isBlocked = blockedSlots.includes(label);
+    const isPast = (isToday && h * 60 <= nowMinutes) || pastSlots.includes(label);
+    const disabled = isBooked || isBlocked || isPast;
+
+    const chip = document.createElement('div');
+    chip.className = 'slot-chip' + (disabled ? ' disabled' : '');
+    chip.dataset.label = label;
+    chip.innerHTML = `${to12HourDisplay(label)}<br><small>₹${price}/hr</small>`;
+    if (isBlocked) chip.title = 'Blocked by host — unavailable';
+    else if (isPast) chip.title = 'This slot has already started';
+    else if (isBooked) chip.title = 'Already booked';
+
+    if (!disabled) {
+      chip.addEventListener('click', () => {
+        if (chip.classList.contains('disabled')) return;
+        chip.classList.toggle('selected');
+        if (chip.classList.contains('selected')) {
+          hostSelectedSlots.push(label);
+        } else {
+          hostSelectedSlots = hostSelectedSlots.filter(s => s !== label);
+        }
+        updateHostBookingSummary();
+      });
+    }
+    grid.appendChild(chip);
+  }
+}
+
+function updateHostBookingSummary() {
+  const total = hostSelectedSlots.reduce((sum, label) => {
+    const m = /^([0-9]{2}):00/.exec(label);
+    return sum + hostGetPriceForHour(Number(m[1]));
+  }, 0);
+  document.getElementById('hostBookingSummary').textContent =
+    hostSelectedSlots.length === 0
+      ? ''
+      : `${hostSelectedSlots.length} slot(s) selected — Total ₹${total} (balance to collect at turf)`;
+}
+
+async function submitHostBooking() {
+  const msg = document.getElementById('hostBookingMsg');
+  const name = document.getElementById('hostBookingName').value.trim();
+  const phone = document.getElementById('hostBookingPhone').value.trim();
+  const date = document.getElementById('hostBookingDate').value;
+  const sport = document.querySelector('input[name="hostSport"]:checked').value;
+  const format = document.querySelector('input[name="hostFormat"]:checked').value;
+
+  if (!name) { msg.style.color = '#ff5c5c'; msg.textContent = 'Enter customer name.'; return; }
+  if (!/^[0-9]{10}$/.test(phone)) { msg.style.color = '#ff5c5c'; msg.textContent = 'Enter a valid 10-digit phone number.'; return; }
+  if (!date) { msg.style.color = '#ff5c5c'; msg.textContent = 'Pick a date.'; return; }
+  if (hostSelectedSlots.length === 0) { msg.style.color = '#ff5c5c'; msg.textContent = 'Select at least one slot.'; return; }
+
+  msg.style.color = 'var(--gray-light)';
+  msg.textContent = 'Creating booking...';
+
+  try {
+    const res = await authFetch(`${API_BASE}/host/bookings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, date, sport, format, slots: hostSelectedSlots })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      msg.style.color = '#ff5c5c';
+      msg.textContent = data.error || 'Could not create booking.';
+      renderHostBookingGrid();
+      return;
+    }
+    msg.style.color = '#2ecc40';
+    msg.textContent = `✅ Booking created (${data.bookingId}). Slots are now blocked for others.`;
+    document.getElementById('hostBookingName').value = '';
+    document.getElementById('hostBookingPhone').value = '';
+    hostSelectedSlots = [];
+    renderHostBookingGrid();
+    loadData();
+  } catch (err) {
+    msg.style.color = '#ff5c5c';
+    msg.textContent = 'Could not connect to server.';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('hostBookingDate').value = hostBookingDateISO(new Date());
+  renderHostBookingGrid();
+  document.getElementById('hostBookingDate').addEventListener('change', renderHostBookingGrid);
+  document.querySelectorAll('input[name="hostSport"]').forEach(r => r.addEventListener('change', renderHostBookingGrid));
 });
 
 document.getElementById('newsForm').addEventListener('submit', async (e) => {

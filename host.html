@@ -207,7 +207,7 @@
         <tr>
           <th>ID</th><th>Name</th><th>Phone</th><th>Date</th>
           <th>Sport</th><th>Slots</th><th>Total</th><th>Advance Paid</th><th>Balance Due</th>
-          <th>Booking Status</th><th>Balance Status</th><th>Action</th>
+          <th>Booked At</th><th>Booking Status</th><th>Balance Status</th><th>Action</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -404,6 +404,20 @@ function to12HourDisplay(label) {
   return `${fmt(m[1])} - ${fmt(m[2])}`;
 }
 
+// Format a booking's createdAt (UTC ISO) as local date + time, e.g. "09 Aug, 10:22 PM"
+function formatBookedAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const day = String(d.getDate()).padStart(2, '0');
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  let h = d.getHours();
+  const suffix = h < 12 ? 'AM' : 'PM';
+  h = h % 12 || 12;
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${day} ${mon}, ${String(h).padStart(2, '0')}:${mm} ${suffix}`;
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   if (hostToken) {
     document.getElementById('loginBox').style.display = 'none';
@@ -514,6 +528,7 @@ async function loadData() {
       <td>₹${b.totalAmount}</td>
       <td>₹${b.advanceAmount}</td>
       <td>₹${b.balanceAmount}</td>
+      <td>${formatBookedAt(b.createdAt)}</td>
       <td class="status-${statusClass}">${b.status}</td>
       <td class="status-${balanceClass}">${b.balanceStatus}</td>
       <td>

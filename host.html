@@ -210,6 +210,14 @@
       <option value="status">By booking status</option>
       <option value="name">By customer name</option>
     </select>
+    <label for="trackingFilter" style="color:var(--gray); font-size:13px;">Filter by date:</label>
+    <select id="trackingFilter" style="padding:8px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); background:var(--mid-green); color:#fff; font-size:13px;">
+      <option value="all">All dates</option>
+      <option value="today">Today</option>
+      <option value="tomorrow">Tomorrow</option>
+      <option value="custom">Pick a date...</option>
+    </select>
+    <input type="date" id="trackingFilterDate" style="display:none; padding:8px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); background:var(--mid-green); color:#fff; font-size:13px;">
   </div>
   <div class="table-wrap">
     <table id="bookingsTable">
@@ -441,6 +449,22 @@ function earliestSlotHour(slots) {
 // Sort tracked bookings. 'date-time' (default): today's first by slot time, then
 // next days; past bookings pushed to the end. Other keys sort by the chosen field.
 let trackingSort = 'date-time';
+let trackingFilter = 'all';
+let trackingFilterDate = '';
+
+function filterBookings(bookings) {
+  const today = blockDateISO(new Date());
+  if (trackingFilter === 'today') return bookings.filter(b => b.date === today);
+  if (trackingFilter === 'tomorrow') {
+    const t = new Date();
+    t.setDate(t.getDate() + 1);
+    return bookings.filter(b => b.date === blockDateISO(t));
+  }
+  if (trackingFilter === 'custom' && trackingFilterDate) {
+    return bookings.filter(b => b.date === trackingFilterDate);
+  }
+  return bookings;
+}
 
 function sortBookings(bookings, key) {
   const arr = bookings.slice();
@@ -507,6 +531,7 @@ async function loadData() {
     return;
   }
 
+  bookings = filterBookings(bookings);
   bookings = sortBookings(bookings, trackingSort);
 
   const today = new Date().toISOString().split('T')[0];
@@ -884,6 +909,16 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('input[name="hostSport"]').forEach(r => r.addEventListener('change', renderHostBookingGrid));
   document.getElementById('trackingSort').addEventListener('change', (e) => {
     trackingSort = e.target.value;
+    loadData();
+  });
+  document.getElementById('trackingFilter').addEventListener('change', (e) => {
+    trackingFilter = e.target.value;
+    document.getElementById('trackingFilterDate').style.display =
+      trackingFilter === 'custom' ? 'inline-block' : 'none';
+    loadData();
+  });
+  document.getElementById('trackingFilterDate').addEventListener('change', (e) => {
+    trackingFilterDate = e.target.value;
     loadData();
   });
 });

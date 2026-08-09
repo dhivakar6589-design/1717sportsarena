@@ -205,9 +205,9 @@
     <table id="bookingsTable">
       <thead>
         <tr>
-          <th>ID</th><th>Name</th><th>Phone</th><th>Date</th>
+          <th>ID</th><th>Booked At</th><th>Date</th><th>Name</th><th>Phone</th>
           <th>Sport</th><th>Slots</th><th>Total</th><th>Advance Paid</th><th>Balance Due</th>
-          <th>Booked At</th><th>Booking Status</th><th>Balance Status</th><th>Action</th>
+          <th>Booking Status</th><th>Balance Status</th><th>Action</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -521,14 +521,13 @@ async function loadData() {
 
     const row = document.createElement('tr');
     row.innerHTML = `
-      <td>${b.id}</td><td>${b.name}</td><td>${b.phone}</td>
-      <td>${b.date}</td>
+      <td>${b.id}</td><td>${formatBookedAt(b.createdAt)}</td><td>${b.date}</td>
+      <td>${b.name}</td><td>${b.phone}</td>
       <td>${b.sport}</td>
       <td>${b.slots.map(to12HourDisplay).join(', ')}</td>
       <td>₹${b.totalAmount}</td>
       <td>₹${b.advanceAmount}</td>
       <td>₹${b.balanceAmount}</td>
-      <td>${formatBookedAt(b.createdAt)}</td>
       <td class="status-${statusClass}">${b.status}</td>
       <td class="status-${balanceClass}">${b.balanceStatus}</td>
       <td>

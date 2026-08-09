@@ -418,6 +418,32 @@ function formatBookedAt(iso) {
   return `${day} ${mon}, ${String(h).padStart(2, '0')}:${mm} ${suffix}`;
 }
 
+// Earliest slot start hour of a booking (06-21). Used to order slots by time of day.
+function earliestSlotHour(slots) {
+  let min = 24;
+  (slots || []).forEach(s => {
+    const m = /^([0-9]{2}):00/.exec(s || '');
+    if (m) min = Math.min(min, Number(m[1]));
+  });
+  return min;
+}
+
+// Sort tracked bookings: today's first, then tomorrow, then next days (by date),
+// and within each date by earliest slot time, then by when they were booked.
+// Past bookings are pushed to the end.
+function sortTrackedBookings(bookings) {
+  const today = blockDateISO(new Date());
+  return bookings.slice().sort((a, b) => {
+    const aKey = (a.date < today ? '9' : '0') + a.date;
+    const bKey = (b.date < today ? '9' : '0') + b.date;
+    if (aKey !== bKey) return aKey < bKey ? -1 : 1;
+    const ah = earliestSlotHour(a.slots);
+    const bh = earliestSlotHour(b.slots);
+    if (ah !== bh) return ah - bh;
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   if (hostToken) {
     document.getElementById('loginBox').style.display = 'none';
@@ -450,6 +476,8 @@ async function loadData() {
   } catch (err) {
     return;
   }
+
+  bookings = sortTrackedBookings(bookings);
 
   const today = new Date().toISOString().split('T')[0];
 

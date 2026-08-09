@@ -201,6 +201,16 @@
   </div>
 
   <h2 style="margin-top:40px;">Bookings & Slot Tracking</h2>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    <label for="trackingSort" style="color:var(--gray); font-size:13px;">Sort by:</label>
+    <select id="trackingSort" style="padding:8px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); background:var(--mid-green); color:#fff; font-size:13px;">
+      <option value="date-time">Today first by time (default)</option>
+      <option value="newest">Newest bookings first</option>
+      <option value="oldest">Oldest bookings first</option>
+      <option value="status">By booking status</option>
+      <option value="name">By customer name</option>
+    </select>
+  </div>
   <div class="table-wrap">
     <table id="bookingsTable">
       <thead>
@@ -428,20 +438,40 @@ function earliestSlotHour(slots) {
   return min;
 }
 
-// Sort tracked bookings: today's first, then tomorrow, then next days (by date),
-// and within each date by earliest slot time, then by when they were booked.
-// Past bookings are pushed to the end.
-function sortTrackedBookings(bookings) {
+// Sort tracked bookings. 'date-time' (default): today's first by slot time, then
+// next days; past bookings pushed to the end. Other keys sort by the chosen field.
+let trackingSort = 'date-time';
+
+function sortBookings(bookings, key) {
+  const arr = bookings.slice();
   const today = blockDateISO(new Date());
-  return bookings.slice().sort((a, b) => {
-    const aKey = (a.date < today ? '9' : '0') + a.date;
-    const bKey = (b.date < today ? '9' : '0') + b.date;
-    if (aKey !== bKey) return aKey < bKey ? -1 : 1;
-    const ah = earliestSlotHour(a.slots);
-    const bh = earliestSlotHour(b.slots);
-    if (ah !== bh) return ah - bh;
-    return (a.createdAt || '').localeCompare(b.createdAt || '');
-  });
+  const tieBreak = (a, b) => (a.date + a.createdAt).localeCompare(b.date + b.createdAt);
+
+  switch (key) {
+    case 'newest':
+      return arr.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || tieBreak(a, b));
+    case 'oldest':
+      return arr.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '') || tieBreak(a, b));
+    case 'status': {
+      const order = { 'pending-payment': 0, 'advance-paid': 1, 'completed': 2, 'cancelled': 3 };
+      return arr.sort((a, b) =>
+        ((order[a.status] ?? 9) - (order[b.status] ?? 9)) || tieBreak(a, b));
+    }
+    case 'name':
+      return arr.sort((a, b) =>
+        (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase()) || tieBreak(a, b));
+    case 'date-time':
+    default:
+      return arr.sort((a, b) => {
+        const aKey = (a.date < today ? '9' : '0') + a.date;
+        const bKey = (b.date < today ? '9' : '0') + b.date;
+        if (aKey !== bKey) return aKey < bKey ? -1 : 1;
+        const ah = earliestSlotHour(a.slots);
+        const bh = earliestSlotHour(b.slots);
+        if (ah !== bh) return ah - bh;
+        return (a.createdAt || '').localeCompare(b.createdAt || '');
+      });
+  }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -477,7 +507,7 @@ async function loadData() {
     return;
   }
 
-  bookings = sortTrackedBookings(bookings);
+  bookings = sortBookings(bookings, trackingSort);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -852,6 +882,10 @@ document.addEventListener('DOMContentLoaded', () => {
   renderHostBookingGrid();
   document.getElementById('hostBookingDate').addEventListener('change', renderHostBookingGrid);
   document.querySelectorAll('input[name="hostSport"]').forEach(r => r.addEventListener('change', renderHostBookingGrid));
+  document.getElementById('trackingSort').addEventListener('change', (e) => {
+    trackingSort = e.target.value;
+    loadData();
+  });
 });
 
 document.getElementById('newsForm').addEventListener('submit', async (e) => {

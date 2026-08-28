@@ -209,7 +209,7 @@
       <thead>
         <tr>
           <th>ID</th><th>Booked At</th><th>Date</th><th>Name</th><th>Phone</th>
-          <th>Sport</th><th>Pay Mode</th><th>Slots</th><th>Total</th><th>Advance Paid</th><th>Balance Due</th>
+          <th>Sport</th><th>Slots</th><th>Total</th><th>Advance Paid</th><th>Balance Due</th>
           <th>Collected Cash</th><th>Collected Online</th>
           <th>Booking Status</th><th>Balance Status</th><th>Action</th>
         </tr>
@@ -218,19 +218,7 @@
     </table>
   </div>
 
-  <h2 style="margin-top:40px; color:#ff8c8c;">Recover Deleted Bookings</h2>
-  <p style="color:var(--gray); font-size:13px; margin-bottom:5px;">Bookings you deleted are kept here for recovery (they no longer hold their slot). If a slot was re-booked in the meantime, recovering the record won't auto-hold it again.</p>
-  <div class="table-wrap">
-    <table id="deletedBookingsTable">
-      <thead>
-        <tr>
-          <th>ID</th><th>Booked At</th><th>Date</th><th>Name</th><th>Phone</th>
-          <th>Sport</th><th>Slots</th><th>Advance Paid</th><th>Balance Due</th><th>Action</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
+
 
   <h2 style="margin-top:40px;">Booking Analytics</h2>
   <div class="summary-grid">
@@ -630,10 +618,9 @@ async function loadData() {
       <td>${b.id}</td><td>${formatBookedAt(b.createdAt)}</td><td>${b.date}</td>
       <td>${b.name}</td><td>${b.phone}</td>
       <td>${b.sport}</td>
-      <td>${(b.paymentMode || 'online') === 'cash' ? '💵 Cash' : '💳 Online'}</td>
       <td>${b.slots.map(to12HourDisplay).join(', ')}</td>
       <td>₹${b.totalAmount}</td>
-      <td>₹${b.advanceAmount}</td>
+      <td>${(b.paymentMode || 'online') === 'cash' && b.advanceAmount === 0 ? '₹' + (collectedAmounts(b).cash + collectedAmounts(b).online) : '₹' + b.advanceAmount}</td>
       <td>₹${b.balanceAmount}</td>
       <td>${canCollectBalance(b) ? `<input type="number" id="cashShare_${b.id}" value="${collectedAmounts(b).cash}" min="0" max="${b.balanceAmount}" style="width:72px; padding:5px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.08); color:#fff;">` : `₹${collectedAmounts(b).cash}`}</td>
       <td>${canCollectBalance(b) ? `<input type="number" id="onlineShare_${b.id}" value="${collectedAmounts(b).online}" min="0" max="${b.balanceAmount}" style="width:72px; padding:5px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.08); color:#fff;">` : `₹${collectedAmounts(b).online}`}</td>
@@ -659,8 +646,6 @@ async function loadData() {
       rtbody.appendChild(row);
     });
   } catch (err) {}
-
-  loadDeletedBookings();
 }
 
 async function updateStatus(id, status) {
@@ -715,48 +700,6 @@ async function restoreBooking(id) {
 function confirmRestore(id) {
   if (confirm('Restore this cancelled booking? Its slot will be held again (if it is still free), and it will count as confirmed. Continue?')) {
     restoreBooking(id);
-  }
-}
-
-// ================= Rendered deleted bookings table =================
-async function loadDeletedBookings() {
-  try {
-    const res = await authFetch(`${API_BASE}/host/bookings/deleted`);
-    const bookings = await res.json();
-    const tbody = document.querySelector('#deletedBookingsTable tbody');
-    tbody.innerHTML = '';
-    bookings.forEach(b => {
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${b.id}</td><td>${formatBookedAt(b.createdAt)}</td><td>${b.date}</td>
-        <td>${b.name}</td><td>${b.phone}</td>
-        <td>${b.sport}</td>
-        <td>${b.slots.map(to12HourDisplay).join(', ')}</td>
-        <td>₹${b.advanceAmount}</td><td>₹${b.balanceAmount}</td>
-        <td><button class="action btn-secondary" style="border-color:#2ecc40; color:#2ecc40;" onclick="confirmRecover('${b.id}')">Recover</button></td>
-      `;
-      tbody.appendChild(row);
-    });
-  } catch (err) {}
-}
-
-async function recoverBooking(id) {
-  try {
-    const res = await authFetch(`${API_BASE}/host/bookings/${id}/recover`, { method: 'POST' });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(data.error || 'Could not recover the booking.');
-      return;
-    }
-    alert(`✅ Booking ${id} recovered. It is back in the main list.`);
-    loadData();
-    loadDeletedBookings();
-  } catch (err) {}
-}
-
-function confirmRecover(id) {
-  if (confirm(`Recover booking ${id}? It will return to the main bookings list. Note: its slot is only held again if it is still free. Continue?`)) {
-    recoverBooking(id);
   }
 }
 

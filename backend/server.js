@@ -250,7 +250,7 @@ app.post('/api/host/login', loginLimiter, async (req, res) => {
 
 // ================= PUBLIC: create a booking =================
 app.post('/api/bookings', bookingLimiter, async (req, res) => {
-  const { name, phone, date, sport, format, slots, paymentMode } = req.body;
+  const { name, phone, date, sport, format, slots } = req.body;
 
   if (!name || !phone || !date || !sport || !format || !slots || !Array.isArray(slots) || slots.length === 0) {
     return res.status(400).json({ error: 'Missing or invalid booking details' });
@@ -268,10 +268,7 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Too many slots selected' });
   }
 
-  // 'cash' = customer pays the full amount at the turf (slot booked immediately).
-  // 'online' = customer pays the ₹100-per-slot advance now via Razorpay.
-  const mode = paymentMode === 'cash' ? 'cash' : 'online';
-
+  // Customers pay the ₹100-per-slot advance online via Razorpay — no cash option.
   // Amounts are computed on the server — client-supplied amounts are ignored
   let totalAmount = 0;
   for (const label of slots) {
@@ -281,13 +278,11 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
     if (price === null) return res.status(400).json({ error: 'Slot outside opening hours' });
     totalAmount += price;
   }
-  const advanceAmount = mode === 'cash' ? 0 : Math.min(ADVANCE_PER_SLOT * slots.length, totalAmount);
+  const advanceAmount = Math.min(ADVANCE_PER_SLOT * slots.length, totalAmount);
   const balanceAmount = totalAmount - advanceAmount;
 
-  // A cash booking is confirmed immediately (the customer will pay in person), so it
-  // blocks the slot right away. An online booking stays 'pending-payment' until the
-  // Razorpay advance is verified.
-  const status = mode === 'cash' ? 'advance-paid' : 'pending-payment';
+  // The booking stays 'pending-payment' until the Razorpay advance is verified.
+  const status = 'pending-payment';
 
   // Past slots on today's date can never be booked
   if (date === localDateISO()) {
@@ -327,25 +322,20 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
 
   await db.run(`
     INSERT INTO bookings (id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, paymentMode, balanceStatus, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'due', ?)
-  `, [id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, advanceAmount, balanceAmount, status, mode, createdAt]);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', 'due', ?)
+  `, [id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, advanceAmount, balanceAmount, status, createdAt]);
 
   // Alert the host on WhatsApp (best-effort; silently skipped if not configured)
-  await sendWhatsApp(mode === 'cash'
-    ? `💵 CASH BOOKING CONFIRMED (${id})\n\n` +
-      `${name} | ${phone}\n` +
-      `${sport.toUpperCase()} (${format}) — ${date}\n` +
-      `Slots: ${slots.join(', ')}\n` +
-      `Full payment (₹${balanceAmount}) to be collected at the turf.`
-    : `🔔 NEW BOOKING REQUEST (${id})\n\n` +
-      `${name} | ${phone}\n` +
-      `${sport.toUpperCase()} (${format}) — ${date}\n` +
-      `Slots: ${slots.join(', ')}\n` +
-      `Advance due: ₹${advanceAmount} | Balance: ₹${balanceAmount}\n` +
-      `Waiting for payment confirmation.`
+  await sendWhatsApp(
+    `🔔 NEW BOOKING REQUEST (${id})\n\n` +
+    `${name} | ${phone}\n` +
+    `${sport.toUpperCase()} (${format}) — ${date}\n` +
+    `Slots: ${slots.join(', ')}\n` +
+    `Advance due: ₹${advanceAmount} | Balance: ₹${balanceAmount}\n` +
+    `Waiting for payment confirmation.`
   );
 
-  res.json({ success: true, bookingId: id, paymentMode: mode, totalAmount, advanceAmount, balanceAmount, status });
+  res.json({ success: true, bookingId: id, paymentMode: 'online', totalAmount, advanceAmount, balanceAmount, status });
 });
 
 // ================= PUBLIC: mark booking as paid (called after payment success) =================

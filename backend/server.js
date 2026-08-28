@@ -634,10 +634,38 @@ app.post('/api/host/bookings', requireHostAuth, async (req, res) => {
   res.json({ success: true, bookingId: id });
 });
 
-// ================= HOST-ONLY: mark balance collected =================
-app.patch('/api/host/bookings/:id/collect-balance', requireHostAuth, async (req, res) => {
+// ================= HOST-ONLY: record how the balance was collected (cash vs online) =================
+// The host enters how much of the balance was paid in cash and how much via online
+// transfer. When the cash + online total equals the balance, the booking is marked
+// collected and completed. Partial recordings are allowed and keep accruing.
+app.patch('/api/host/bookings/:id/collect', requireHostAuth, async (req, res) => {
   const { id } = req.params;
-  await db.run(`UPDATE bookings SET balanceStatus = 'collected', status = 'completed' WHERE id = ?`, [id]);
+  const { cash, online } = req.body;
+
+  const cashAmt = Math.floor(Number(cash));
+  const onlineAmt = Math.floor(Number(online));
+  if (!Number.isFinite(cashAmt) || !Number.isFinite(onlineAmt) || cashAmt < 0 || onlineAmt < 0) {
+    return res.status(400).json({ error: 'Collected amounts must be valid numbers' });
+  }
+  if (cashAmt + onlineAmt === 0) {
+    return res.status(400).json({ error: 'Enter how much was collected (cash and/or online)' });
+  }
+
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NULL', [id]);
+  if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+  const balance = Number(booking.balanceAmount);
+  if (cashAmt + onlineAmt > balance) {
+    return res.status(400).json({ error: `Collected amount (₹${cashAmt + onlineAmt}) cannot exceed the balance due (₹${balance})` });
+  }
+
+  const fullyCollected = cashAmt + onlineAmt === balance;
+  const balanceStatus = fullyCollected ? 'collected' : 'partial';
+  const status = fullyCollected ? 'completed' : booking.status;
+
+  await db.run('UPDATE bookings SET collectedCash = ?, collectedOnline = ?, balanceStatus = ?, status = ? WHERE id = ?',
+    [cashAmt, onlineAmt, balanceStatus, status, id]);
+
   res.json({ success: true });
 });
 

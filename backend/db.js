@@ -22,6 +22,8 @@ const KEY_MAP = {
   advanceamount: 'advanceAmount',
   balanceamount: 'balanceAmount',
   balancestatus: 'balanceStatus',
+  collectedcash: 'collectedCash',
+  collectedonline: 'collectedOnline',
   createdat: 'createdAt',
   paymentid: 'paymentId',
   refundstatus: 'refundStatus',
@@ -84,6 +86,16 @@ async function initSchema() {
   // Host recovery: soft-deleted bookings keep their row but are hidden by default.
   await pool.query(`
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deletedAt TEXT
+  `);
+
+  // How the host collected the balance at the turf (cash and/or online transfer).
+  // Existing databases get these columns added here.
+  await pool.query(`
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS collectedCash INTEGER NOT NULL DEFAULT 0
+  `);
+
+  await pool.query(`
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS collectedOnline INTEGER NOT NULL DEFAULT 0
   `);
 
   await pool.query(`

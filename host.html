@@ -225,6 +225,7 @@
         <tr>
           <th>ID</th><th>Booked At</th><th>Date</th><th>Name</th><th>Phone</th>
           <th>Sport</th><th>Pay Mode</th><th>Slots</th><th>Total</th><th>Advance Paid</th><th>Balance Due</th>
+          <th>Collected Cash</th><th>Collected Online</th>
           <th>Booking Status</th><th>Balance Status</th><th>Action</th>
         </tr>
       </thead>
@@ -279,6 +280,18 @@
     <div class="summary-card revenue">
       <h3>Total Revenue</h3>
       <div class="value" id="totalRevenue">₹0</div>
+    </div>
+    <div class="summary-card revenue">
+      <h3>Advance (Online)</h3>
+      <div class="value" id="advanceRevenue">₹0</div>
+    </div>
+    <div class="summary-card revenue">
+      <h3>Collected — Cash</h3>
+      <div class="value" id="cashRevenue">₹0</div>
+    </div>
+    <div class="summary-card revenue">
+      <h3>Collected — Online</h3>
+      <div class="value" id="onlineRevenue">₹0</div>
     </div>
     <div class="summary-card">
       <h3>Total Bookings</h3>
@@ -536,6 +549,22 @@ async function authFetch(url, options = {}) {
   return res;
 }
 
+// Legacy backup: bookings marked 'collected' under the old one-button flow have
+// no cash/online split. Treat their whole balance as cash so revenue is preserved.
+function collectedAmounts(b) {
+  let cash = Number(b.collectedCash) || 0;
+  let online = Number(b.collectedOnline) || 0;
+  if (cash === 0 && online === 0 && b.balanceStatus === 'collected') {
+    cash = Number(b.balanceAmount) || 0;
+  }
+  return { cash, online };
+}
+
+// Show the cash/online collection inputs for bookings the host can still collect on.
+function canCollectBalance(b) {
+  return (b.status === 'advance-paid' || b.status === 'completed') && Number(b.balanceAmount) > 0;
+}
+
 async function loadData() {
   let bookings;
   try {
@@ -558,23 +587,25 @@ async function loadData() {
   const activeBookings = bookings.filter(b => b.status === 'advance-paid' || b.status === 'completed');
 
   const advanceRevenue = paidAdvanceBookings.reduce((sum, b) => sum + Number(b.advanceAmount), 0);
-  const balanceCollected = bookings
-    .filter(b => b.balanceStatus === 'collected')
-    .reduce((sum, b) => sum + Number(b.balanceAmount), 0);
-  const totalRevenue = advanceRevenue + balanceCollected;
+  const cashRevenue = bookings.reduce((sum, b) => sum + collectedAmounts(b).cash, 0);
+  const onlineRevenue = bookings.reduce((sum, b) => sum + collectedAmounts(b).online, 0);
+  const totalRevenue = advanceRevenue + cashRevenue + onlineRevenue;
 
   const todayPaidAdvance = paidAdvanceBookings.filter(b => b.date === today);
   const todayAdvance = todayPaidAdvance.reduce((sum, b) => sum + Number(b.advanceAmount), 0);
-  const todayBalance = bookings
-    .filter(b => b.balanceStatus === 'collected' && b.date === today)
-    .reduce((sum, b) => sum + Number(b.balanceAmount), 0);
-  const todayRevenue = todayAdvance + todayBalance;
+  const todayCash = bookings.filter(b => b.date === today).reduce((sum, b) => sum + collectedAmounts(b).cash, 0);
+  const todayOnline = bookings.filter(b => b.date === today).reduce((sum, b) => sum + collectedAmounts(b).online, 0);
+  const todayRevenue = todayAdvance + todayCash + todayOnline;
 
   const pendingCount = bookings.filter(b => b.status === 'pending-payment').length;
   const confirmedCount = activeBookings.length;
   const todayCount = bookings.filter(b => b.date === today).length;
 
-  document.getElementById('totalRevenue').textContent = '₹' + totalRevenue;
+  const totalRevenueEl = document.getElementById('totalRevenue');
+  if (totalRevenueEl) totalRevenueEl.textContent = '₹' + totalRevenue;
+  document.getElementById('advanceRevenue').textContent = '₹' + advanceRevenue;
+  document.getElementById('cashRevenue').textContent = '₹' + cashRevenue;
+  document.getElementById('onlineRevenue').textContent = '₹' + onlineRevenue;
   document.getElementById('totalBookings').textContent = bookings.length;
   document.getElementById('confirmedCount').textContent = confirmedCount;
   document.getElementById('pendingCount').textContent = pendingCount;
@@ -586,10 +617,10 @@ async function loadData() {
   document.getElementById('footballCount').textContent = footballBookings.length;
   document.getElementById('cricketCount').textContent = cricketBookings.length;
 
-  const footballRevenue = paidAdvanceBookings.filter(b => b.sport === 'football').reduce((s,b) => s + b.advanceAmount, 0)
-    + bookings.filter(b => b.sport === 'football' && b.balanceStatus === 'collected').reduce((s,b) => s + b.balanceAmount, 0);
-  const cricketRevenue = paidAdvanceBookings.filter(b => b.sport === 'cricket').reduce((s,b) => s + b.advanceAmount, 0)
-    + bookings.filter(b => b.sport === 'cricket' && b.balanceStatus === 'collected').reduce((s,b) => s + b.balanceAmount, 0);
+  const footballRevenue = paidAdvanceBookings.filter(b => b.sport === 'football').reduce((s,b) => s + Number(b.advanceAmount), 0)
+    + bookings.filter(b => b.sport === 'football').reduce((s,b) => s + collectedAmounts(b).cash + collectedAmounts(b).online, 0);
+  const cricketRevenue = paidAdvanceBookings.filter(b => b.sport === 'cricket').reduce((s,b) => s + Number(b.advanceAmount), 0)
+    + bookings.filter(b => b.sport === 'cricket').reduce((s,b) => s + collectedAmounts(b).cash + collectedAmounts(b).online, 0);
 
   document.getElementById('footballRevenue').textContent = '₹' + footballRevenue;
   document.getElementById('cricketRevenue').textContent = '₹' + cricketRevenue;
@@ -626,12 +657,14 @@ async function loadData() {
       <td>₹${b.totalAmount}</td>
       <td>₹${b.advanceAmount}</td>
       <td>₹${b.balanceAmount}</td>
+      <td>${canCollectBalance(b) ? `<input type="number" id="cashShare_${b.id}" value="${collectedAmounts(b).cash}" min="0" max="${b.balanceAmount}" style="width:72px; padding:5px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.08); color:#fff;">` : `₹${collectedAmounts(b).cash}`}</td>
+      <td>${canCollectBalance(b) ? `<input type="number" id="onlineShare_${b.id}" value="${collectedAmounts(b).online}" min="0" max="${b.balanceAmount}" style="width:72px; padding:5px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.08); color:#fff;">` : `₹${collectedAmounts(b).online}`}</td>
       <td class="status-${statusClass}">${b.status}</td>
       <td class="status-${balanceClass}">${b.balanceStatus}</td>
       <td>
         ${b.status === 'advance-paid' ? `<button class="action btn-cancel" onclick="confirmCancel('${b.id}')">Cancel Slot</button>` : ''}
         ${b.status === 'cancelled' ? `<button class="action btn-secondary" style="border-color:#2ecc40; color:#2ecc40;" onclick="confirmRestore('${b.id}')">Restore Slot</button>` : ''}
-        ${b.balanceStatus === 'due' && b.status !== 'cancelled' && b.status !== 'pending-payment' ? `<button class="action btn-secondary" onclick="collectBalance('${b.id}')">Mark Balance Collected</button>` : ''}
+        ${canCollectBalance(b) ? `<button class="action btn-secondary" onclick="saveCollection('${b.id}')">Save Collection</button>` : ''}
         <button class="action btn-cancel" onclick="confirmDelete('${b.id}')">Delete</button>
       </td>
     `;
@@ -750,11 +783,33 @@ function confirmRecover(id) {
   }
 }
 
-async function collectBalance(id) {
+// Host records how the balance was collected — split between cash and online.
+async function saveCollection(id) {
+  const cashEl = document.getElementById('cashShare_' + id);
+  const onlineEl = document.getElementById('onlineShare_' + id);
+  const cash = Math.floor(Number(cashEl ? cashEl.value : 0));
+  const online = Math.floor(Number(onlineEl ? onlineEl.value : 0));
+
+  if (!Number.isFinite(cash) || !Number.isFinite(online) || cash < 0 || online < 0) {
+    alert('Enter valid amounts for cash and online.');
+    return;
+  }
+
   try {
-    await authFetch(`${API_BASE}/host/bookings/${id}/collect-balance`, { method: 'PATCH' });
+    const res = await authFetch(`${API_BASE}/host/bookings/${id}/collect`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cash, online })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || 'Could not save collection.');
+      return;
+    }
     loadData();
-  } catch (err) {}
+  } catch (err) {
+    alert('Could not connect to server.');
+  }
 }
 
 // ================= Block Slots / Unavailability =================

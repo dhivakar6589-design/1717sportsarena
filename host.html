@@ -665,7 +665,6 @@ async function loadData() {
         ${b.status === 'advance-paid' ? `<button class="action btn-cancel" onclick="confirmCancel('${b.id}')">Cancel Slot</button>` : ''}
         ${b.status === 'cancelled' ? `<button class="action btn-secondary" style="border-color:#2ecc40; color:#2ecc40;" onclick="confirmRestore('${b.id}')">Restore Slot</button>` : ''}
         ${canCollectBalance(b) ? `<button class="action btn-secondary" onclick="saveCollection('${b.id}')">Save Collection</button>` : ''}
-        <button class="action btn-cancel" onclick="confirmDelete('${b.id}')">Delete</button>
       </td>
     `;
     tbody.appendChild(row);

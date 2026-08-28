@@ -250,7 +250,7 @@ app.post('/api/host/login', loginLimiter, async (req, res) => {
 
 // ================= PUBLIC: create a booking =================
 app.post('/api/bookings', bookingLimiter, async (req, res) => {
-  const { name, phone, date, sport, format, slots } = req.body;
+  const { name, phone, date, sport, format, slots, paymentMode } = req.body;
 
   if (!name || !phone || !date || !sport || !format || !slots || !Array.isArray(slots) || slots.length === 0) {
     return res.status(400).json({ error: 'Missing or invalid booking details' });
@@ -268,6 +268,10 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Too many slots selected' });
   }
 
+  // 'cash' = customer pays the full amount at the turf (slot booked immediately).
+  // 'online' = customer pays the ₹100-per-slot advance now via Razorpay.
+  const mode = paymentMode === 'cash' ? 'cash' : 'online';
+
   // Amounts are computed on the server — client-supplied amounts are ignored
   let totalAmount = 0;
   for (const label of slots) {
@@ -277,8 +281,13 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
     if (price === null) return res.status(400).json({ error: 'Slot outside opening hours' });
     totalAmount += price;
   }
-  const advanceAmount = Math.min(ADVANCE_PER_SLOT * slots.length, totalAmount);
+  const advanceAmount = mode === 'cash' ? 0 : Math.min(ADVANCE_PER_SLOT * slots.length, totalAmount);
   const balanceAmount = totalAmount - advanceAmount;
+
+  // A cash booking is confirmed immediately (the customer will pay in person), so it
+  // blocks the slot right away. An online booking stays 'pending-payment' until the
+  // Razorpay advance is verified.
+  const status = mode === 'cash' ? 'advance-paid' : 'pending-payment';
 
   // Past slots on today's date can never be booked
   if (date === localDateISO()) {
@@ -296,7 +305,7 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
   // Check for slot conflicts against existing CONFIRMED bookings for same date
   // (both sports share the same play area, so slots block across sports)
   const existing = await db.all(
-    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed')`,
+    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed') AND deletedAt IS NULL`,
     [date]
   );
 
@@ -317,27 +326,32 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
   const createdAt = new Date().toISOString();
 
   await db.run(`
-    INSERT INTO bookings (id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, balanceStatus, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending-payment', 'due', ?)
-  `, [id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, advanceAmount, balanceAmount, createdAt]);
+    INSERT INTO bookings (id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, paymentMode, balanceStatus, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'due', ?)
+  `, [id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, advanceAmount, balanceAmount, status, mode, createdAt]);
 
   // Alert the host on WhatsApp (best-effort; silently skipped if not configured)
-  await sendWhatsApp(
-    `🔔 NEW BOOKING REQUEST (${id})\n\n` +
-    `${name} | ${phone}\n` +
-    `${sport.toUpperCase()} (${format}) — ${date}\n` +
-    `Slots: ${slots.join(', ')}\n` +
-    `Advance due: ₹${advanceAmount} | Balance: ₹${balanceAmount}\n` +
-    `Waiting for payment confirmation.`
+  await sendWhatsApp(mode === 'cash'
+    ? `💵 CASH BOOKING CONFIRMED (${id})\n\n` +
+      `${name} | ${phone}\n` +
+      `${sport.toUpperCase()} (${format}) — ${date}\n` +
+      `Slots: ${slots.join(', ')}\n` +
+      `Full payment (₹${balanceAmount}) to be collected at the turf.`
+    : `🔔 NEW BOOKING REQUEST (${id})\n\n` +
+      `${name} | ${phone}\n` +
+      `${sport.toUpperCase()} (${format}) — ${date}\n` +
+      `Slots: ${slots.join(', ')}\n` +
+      `Advance due: ₹${advanceAmount} | Balance: ₹${balanceAmount}\n` +
+      `Waiting for payment confirmation.`
   );
 
-  res.json({ success: true, bookingId: id });
+  res.json({ success: true, bookingId: id, paymentMode: mode, totalAmount, advanceAmount, balanceAmount, status });
 });
 
 // ================= PUBLIC: mark booking as paid (called after payment success) =================
 app.post('/api/bookings/:id/confirm-payment', async (req, res) => {
   const { id } = req.params;
-  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NULL', [id]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
   await db.run(`UPDATE bookings SET status = 'advance-paid' WHERE id = ?`, [id]);
@@ -351,7 +365,7 @@ app.get('/api/bookings/slots', async (req, res) => {
   if (!date) return res.status(400).json({ error: 'date is required' });
 
   const rows = await db.all(
-    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed')`,
+    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed') AND deletedAt IS NULL`,
     [date]
   );
 
@@ -379,7 +393,7 @@ app.get('/api/bookings/lookup', async (req, res) => {
   if (!phone || !/^[0-9]{10}$/.test(phone)) {
     return res.status(400).json({ error: 'Valid 10-digit phone number required' });
   }
-  const rows = await db.all('SELECT * FROM bookings WHERE phone = ? ORDER BY createdAt DESC', [phone]);
+  const rows = await db.all('SELECT * FROM bookings WHERE phone = ? AND deletedAt IS NULL ORDER BY createdAt DESC', [phone]);
   const bookings = rows.map(b => ({ ...b, slots: JSON.parse(b.slots) }));
   res.json({ bookings });
 });
@@ -394,7 +408,7 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
     return res.status(400).json({ error: 'Valid 10-digit phone number required' });
   }
 
-  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NULL', [id]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
   if (booking.phone !== phone) return res.status(403).json({ error: 'This phone number does not match the booking' });
   if (booking.status === 'cancelled') return res.status(400).json({ error: 'This booking is already cancelled' });
@@ -432,9 +446,16 @@ app.get('/api/reviews', async (req, res) => {
   res.json(reviews);
 });
 
-// ================= HOST-ONLY: get all bookings (requires login token) =================
+// ================= HOST-ONLY: get all ACTIVE bookings (requires login token) =================
 app.get('/api/host/bookings', requireHostAuth, async (req, res) => {
-  const rows = await db.all('SELECT * FROM bookings ORDER BY createdAt DESC');
+  const rows = await db.all('SELECT * FROM bookings WHERE deletedAt IS NULL ORDER BY createdAt DESC');
+  const bookings = rows.map(b => ({ ...b, slots: JSON.parse(b.slots) }));
+  res.json(bookings);
+});
+
+// ================= HOST-ONLY: get soft-deleted (archived) bookings for recovery =================
+app.get('/api/host/bookings/deleted', requireHostAuth, async (req, res) => {
+  const rows = await db.all('SELECT * FROM bookings WHERE deletedAt IS NOT NULL ORDER BY deletedAt DESC');
   const bookings = rows.map(b => ({ ...b, slots: JSON.parse(b.slots) }));
   res.json(bookings);
 });
@@ -446,7 +467,7 @@ app.patch('/api/host/bookings/:id/status', requireHostAuth, async (req, res) => 
   if (!['pending-payment', 'advance-paid', 'cancelled', 'completed'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
-  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NULL', [id]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
   await db.run('UPDATE bookings SET status = ? WHERE id = ?', [status, id]);
@@ -456,17 +477,58 @@ app.patch('/api/host/bookings/:id/status', requireHostAuth, async (req, res) => 
   res.json({ success: true });
 });
 
-// ================= HOST-ONLY: delete a booking entirely =================
-// Removes the booking from the system. Used to drop a customer's booking (paid or
-// unpaid) completely — the slot is freed up and the record is gone. The advance is
+// ================= HOST-ONLY: soft-delete a booking =================
+// Marks the booking as deleted (archived) instead of removing the row, so the host
+// can recover it later if they deleted it by accident. A soft-deleted booking no
+// longer holds its slot and is hidden from customer-facing queries. The advance is
 // non-refundable (announced policy), so no Razorpay refund is triggered.
 app.delete('/api/host/bookings/:id', requireHostAuth, async (req, res) => {
   const { id } = req.params;
   const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [id]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
-  await db.run('DELETE FROM bookings WHERE id = ?', [id]);
+  await db.run('UPDATE bookings SET deletedAt = ? WHERE id = ?', [new Date().toISOString(), id]);
   res.json({ success: true });
+});
+
+// ================= HOST-ONLY: recover a soft-deleted (archived) booking =================
+// Brings a soft-deleted booking back. It will only hold its slot again if that
+// slot is still free — otherwise the host is told the slot is now taken so they
+// can decide whether to proceed (they may still want the record for the balance).
+app.post('/api/host/bookings/:id/recover', requireHostAuth, async (req, res) => {
+  const { id } = req.params;
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NOT NULL', [id]);
+  if (!booking) return res.status(404).json({ error: 'Deleted booking not found' });
+
+  await db.run('UPDATE bookings SET deletedAt = NULL WHERE id = ?', [id]);
+  res.json({ success: true, message: 'Booking recovered.' });
+});
+
+// ================= HOST-ONLY: restore a cancelled booking's slot =================
+// Re-activates a cancelled booking by moving it back to 'advance-paid' so the
+// slot becomes confirmed again. Only works if the slot is still free.
+app.post('/api/host/bookings/:id/restore', requireHostAuth, async (req, res) => {
+  const { id } = req.params;
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NULL', [id]);
+  if (!booking) return res.status(404).json({ error: 'Booking not found' });
+  if (booking.status !== 'cancelled') {
+    return res.status(400).json({ error: 'Only cancelled bookings can be restored.' });
+  }
+
+  // The slot must still be free — a restored booking immediately holds it again.
+  const existing = await db.all(
+    `SELECT slots FROM bookings WHERE date = ? AND id != ? AND status IN ('advance-paid', 'completed') AND deletedAt IS NULL`,
+    [booking.date, id]
+  );
+  const takenSlots = existing.flatMap(row => JSON.parse(row.slots));
+  const ownSlots = JSON.parse(booking.slots);
+  const conflict = ownSlots.some(s => takenSlots.includes(s));
+  if (conflict) {
+    return res.status(409).json({ error: 'One or more of these slots have been re-booked since. Restore is blocked to avoid a double-booking.' });
+  }
+
+  await db.run(`UPDATE bookings SET status = 'advance-paid' WHERE id = ?`, [id]);
+  res.json({ success: true, message: 'Booking restored.' });
 });
 
 // ================= HOST-ONLY: blocked slots (turf unavailability) =================
@@ -555,7 +617,7 @@ app.post('/api/host/bookings', requireHostAuth, async (req, res) => {
 
   // Check for slot conflicts against existing CONFIRMED bookings for same date
   const existing = await db.all(
-    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed')`,
+    `SELECT slots FROM bookings WHERE date = ? AND status IN ('advance-paid', 'completed') AND deletedAt IS NULL`,
     [date]
   );
   const takenSlots = existing.flatMap(row => JSON.parse(row.slots));
@@ -575,8 +637,8 @@ app.post('/api/host/bookings', requireHostAuth, async (req, res) => {
   const createdAt = new Date().toISOString();
 
   await db.run(`
-    INSERT INTO bookings (id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, balanceStatus, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'advance-paid', 'due', ?)
+    INSERT INTO bookings (id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, paymentMode, balanceStatus, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'advance-paid', 'cash', 'due', ?)
   `, [id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, totalAmount, createdAt]);
 
   res.json({ success: true, bookingId: id });
@@ -622,7 +684,7 @@ app.post('/api/payment/create-order', paymentLimiter, async (req, res) => {
   const { bookingId, amount } = req.body;
   if (!bookingId) return res.status(400).json({ error: 'bookingId is required' });
 
-  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NULL', [bookingId]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
   if (booking.status !== 'pending-payment') return res.status(400).json({ error: 'Booking is not awaiting payment' });
   if (!amount || Number(amount) !== booking.advanceAmount) return res.status(400).json({ error: 'Invalid amount' });
@@ -631,7 +693,7 @@ app.post('/api/payment/create-order', paymentLimiter, async (req, res) => {
   // while this one was filling the payment page, cancel this booking here so the
   // second customer is never charged an advance for a slot they can't have.
   const existing = await db.all(
-    `SELECT slots FROM bookings WHERE date = ? AND id != ? AND status IN ('advance-paid', 'completed')`,
+    `SELECT slots FROM bookings WHERE date = ? AND id != ? AND status IN ('advance-paid', 'completed') AND deletedAt IS NULL`,
     [booking.date, bookingId]
   );
   const takenSlots = existing.flatMap(row => JSON.parse(row.slots));
@@ -685,14 +747,14 @@ app.post('/api/payment/verify', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Payment verification failed' });
   }
 
-  const booking = await db.get('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+  const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NULL', [bookingId]);
   if (!booking) return res.status(404).json({ success: false, error: 'Booking not found' });
 
   // The slot must still be free — it was only held in 'pending-payment' state and
   // never blocked other customers. If someone else confirmed it first (or the host
   // blocked it), cancel this booking so the paid amount can be refunded.
   const existing = await db.all(
-    `SELECT slots FROM bookings WHERE date = ? AND id != ? AND status IN ('advance-paid', 'completed')`,
+    `SELECT slots FROM bookings WHERE date = ? AND id != ? AND status IN ('advance-paid', 'completed') AND deletedAt IS NULL`,
     [booking.date, bookingId]
   );
   const takenSlots = existing.flatMap(row => JSON.parse(row.slots));

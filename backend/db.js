@@ -25,6 +25,7 @@ const KEY_MAP = {
   createdat: 'createdAt',
   paymentid: 'paymentId',
   refundstatus: 'refundStatus',
+  paymentmode: 'paymentMode',
   passwordhash: 'passwordHash',
   imagepath: 'imagePath'
 };
@@ -66,11 +67,23 @@ async function initSchema() {
       advanceAmount INTEGER NOT NULL,
       balanceAmount INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending-payment',   -- pending-payment | advance-paid | cancelled | completed
+      paymentMode TEXT NOT NULL DEFAULT 'online',       -- online (₹100/slot advance) | cash (full payment at turf)
       balanceStatus TEXT NOT NULL DEFAULT 'due',        -- due | collected
       createdAt TEXT NOT NULL,
       paymentId TEXT,
-      refundStatus TEXT
+      refundStatus TEXT,
+      deletedAt TEXT
     )
+  `);
+
+  // Existing databases created before paymentMode existed get the column added here.
+  await pool.query(`
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paymentMode TEXT NOT NULL DEFAULT 'online'
+  `);
+
+  // Host recovery: soft-deleted bookings keep their row but are hidden by default.
+  await pool.query(`
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deletedAt TEXT
   `);
 
   await pool.query(`

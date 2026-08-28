@@ -54,6 +54,10 @@ document.addEventListener('DOMContentLoaded', () => {
     return document.querySelector('input[name="format"]:checked').value;
   }
 
+  function getSelectedPaymentMode() {
+    return document.querySelector('input[name="paymentMode"]:checked').value;
+  }
+
   function buildDateStrip() {
     dateStrip.innerHTML = '';
     const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -149,12 +153,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const advance = Math.min(ADVANCE_PER_SLOT * selectedSlots.length, total);
     const balance = total - advance;
     const payBtn = document.getElementById('payBtn');
+    const mode = getSelectedPaymentMode();
+    const advanceRow = document.getElementById('advanceRow');
 
     totalAmt.textContent = '₹' + total;
     advanceAmt.textContent = '₹' + advance;
-    balanceAmt.textContent = '₹' + balance;
-    if (payBtn) payBtn.textContent = `Pay ₹${advance} Advance & Book`;
+    balanceAmt.textContent = '₹' + (mode === 'cash' ? total : balance);
+    if (advanceRow) advanceRow.style.display = mode === 'cash' ? 'none' : 'flex';
+    if (payBtn) payBtn.textContent = mode === 'cash' ? `Book Slot — Pay ₹${total} at Turf` : `Pay ₹${advance} Advance & Book`;
     priceSummary.style.display = 'block';
+  }
+
+  function updatePaymentModeUI() {
+    const mode = getSelectedPaymentMode();
+    const notice = document.getElementById('refundNotice');
+    const agreeLabel = document.getElementById('agreeRefundLabel');
+    if (notice) notice.textContent = mode === 'cash'
+      ? '💵 You will pay the full amount at the turf. Your slot is booked in your name right away.'
+      : '💳 Advance payment is ₹100 per slot (non-refundable, including in case of cancellation). Example: 3 slots = ₹300 advance.';
+    if (agreeLabel) agreeLabel.textContent = mode === 'cash'
+      ? 'I agree to book this slot and pay the full amount at the turf.'
+      : 'I understand the advance payment is non-refundable.';
+    updatePriceSummary();
   }
 
   function toggleFormatGroup() {
@@ -168,7 +188,11 @@ document.addEventListener('DOMContentLoaded', () => {
       generateSlotGrid();
     });
   });
+  document.querySelectorAll('input[name="paymentMode"]').forEach(radio => {
+    radio.addEventListener('change', updatePaymentModeUI);
+  });
   toggleFormatGroup();
+  updatePaymentModeUI();
 
   function refreshPastSlots() {
     if (selectedDate !== formatDateISO(new Date())) return;
@@ -201,14 +225,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const phone = document.getElementById('phone').value.trim();
     const sport = getSelectedSport();
     const format = getSelectedFormat();
+    const paymentMode = getSelectedPaymentMode();
 
     if (!name) { msg.style.color = '#ff5c5c'; msg.textContent = 'Please enter your name.'; return; }
     if (!/^[0-9]{10}$/.test(phone)) { msg.style.color = '#ff5c5c'; msg.textContent = 'Please enter a valid 10-digit phone number.'; return; }
     if (selectedSlots.length === 0) { msg.style.color = '#ff5c5c'; msg.textContent = 'Please select at least one time slot.'; return; }
 
-    const totalAmount = selectedSlots.reduce((sum, s) => sum + s.price, 0);
-    const advanceAmount = Math.min(ADVANCE_PER_SLOT * selectedSlots.length, totalAmount);
-    const balanceAmount = totalAmount - advanceAmount;
     const slotsSorted = selectedSlots.map(s => s.label).sort();
 
     msg.style.color = '#d4af37';
@@ -220,7 +242,7 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name, phone, date: selectedDate, sport, format,
-          slots: slotsSorted, totalAmount, advanceAmount, balanceAmount
+          slots: slotsSorted, paymentMode
         })
       });
       const data = await res.json();
@@ -233,6 +255,21 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const bookingId = data.bookingId;
+      const { advanceAmount, balanceAmount } = data;
+
+      // ---- Cash payment: the booking is already confirmed — no online payment ----
+      if (paymentMode === 'cash') {
+        msg.style.color = '#2ecc40';
+        msg.textContent = `Slot booked in your name (ID: ${bookingId}).`;
+        showConfirmation({ bookingId, name, phone, date: selectedDate, sport, format, slots: slotsSorted, advanceAmount, balanceAmount, paymentMode });
+        alert(`✅ Your slot is booked, ${name}!\n\nBooking ID: ${bookingId}\nDate: ${selectedDate}\nSlots: ${slotsSorted.map(to12HourDisplay).join(', ')}\n\nPay the full amount of ₹${balanceAmount} at the turf. Show this booking to the host when you arrive.`);
+        bookingForm.reset();
+        buildDateStrip();
+        generateSlotGrid();
+        return;
+      }
+
+      // ---- Online payment: open the Razorpay advance checkout ----
       msg.style.color = '#2ecc40';
       msg.textContent = `Booking created (ID: ${bookingId}). Opening payment...`;
 
@@ -318,18 +355,22 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// ---- Booking confirmation card (shown after payment success) ----
+// ---- Booking confirmation card (shown after success) ----
 function showConfirmation(details) {
+  const isCash = details.paymentMode === 'cash';
   const el = document.getElementById('bookingConfirm');
   el.innerHTML = `
-    <h3>Booking Confirmed</h3>
+    <h3>${isCash ? 'Slot Booked — Pay at Turf' : 'Booking Confirmed'}</h3>
     <div class="confirm-row"><span>Booking ID</span><span>${details.bookingId}</span></div>
     <div class="confirm-row"><span>Date</span><span>${details.date}</span></div>
     <div class="confirm-row"><span>Sport</span><span>${details.sport.toUpperCase()} (${details.format})</span></div>
     <div class="confirm-row"><span>Slots</span><span>${details.slots.map(to12HourDisplay).join(', ')}</span></div>
-    <div class="confirm-row"><span>Advance Paid</span><span>₹${details.advanceAmount}</span></div>
-    <div class="confirm-row"><span>Balance at Turf</span><span>₹${details.balanceAmount}</span></div>
-    <p class="confirm-note">📸 Please take a screenshot of this confirmation for your records and show it at the turf.</p>
+    <div class="confirm-row"><span>Payment Mode</span><span>${isCash ? 'Cash at Turf' : 'Online (Advance Paid)'}</span></div>
+    <div class="confirm-row"><span>${isCash ? 'Total Due at Turf' : 'Advance Paid'}</span><span>₹${isCash ? details.balanceAmount : details.advanceAmount}</span></div>
+    ${isCash ? '' : `<div class="confirm-row"><span>Balance at Turf</span><span>₹${details.balanceAmount}</span></div>`}
+    <p class="confirm-note">${isCash
+      ? '📸 Please take a screenshot of this confirmation for your records and show it at the turf. Pay the full amount on arrival.'
+      : '📸 Please take a screenshot of this confirmation for your records and show it at the turf.'}</p>
   `;
   el.style.display = 'block';
   el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -374,8 +415,8 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <div class="mb-slots">${b.slots.map(to12HourDisplay).join(', ')}</div>
           <div class="mb-top">
-            <span class="mb-date">${b.date} • ${b.sport.toUpperCase()} (${b.format})</span>
-            <span class="mb-date">₹${b.advanceAmount} paid</span>
+            <span class="mb-date">${b.date} • ${b.sport.toUpperCase()} (${b.format}) • ${b.paymentMode === 'cash' ? '💵 Cash at turf' : '💳 Online'}</span>
+            <span class="mb-date">${b.paymentMode === 'cash' ? `₹${b.balanceAmount} due at turf` : `₹${b.advanceAmount} paid`}</span>
           </div>
           ${cancellable ? `<div style="margin-top:12px;"><button class="btn-cancel-booking" onclick="cancelMyBooking('${b.id}')">Cancel this booking</button></div>` : ''}
         `;

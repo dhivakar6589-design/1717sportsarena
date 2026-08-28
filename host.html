@@ -224,8 +224,22 @@
       <thead>
         <tr>
           <th>ID</th><th>Booked At</th><th>Date</th><th>Name</th><th>Phone</th>
-          <th>Sport</th><th>Slots</th><th>Total</th><th>Advance Paid</th><th>Balance Due</th>
+          <th>Sport</th><th>Pay Mode</th><th>Slots</th><th>Total</th><th>Advance Paid</th><th>Balance Due</th>
           <th>Booking Status</th><th>Balance Status</th><th>Action</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <h2 style="margin-top:40px; color:#ff8c8c;">Recover Deleted Bookings</h2>
+  <p style="color:var(--gray); font-size:13px; margin-bottom:5px;">Bookings you deleted are kept here for recovery (they no longer hold their slot). If a slot was re-booked in the meantime, recovering the record won't auto-hold it again.</p>
+  <div class="table-wrap">
+    <table id="deletedBookingsTable">
+      <thead>
+        <tr>
+          <th>ID</th><th>Booked At</th><th>Date</th><th>Name</th><th>Phone</th>
+          <th>Sport</th><th>Slots</th><th>Advance Paid</th><th>Balance Due</th><th>Action</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -607,6 +621,7 @@ async function loadData() {
       <td>${b.id}</td><td>${formatBookedAt(b.createdAt)}</td><td>${b.date}</td>
       <td>${b.name}</td><td>${b.phone}</td>
       <td>${b.sport}</td>
+      <td>${(b.paymentMode || 'online') === 'cash' ? '💵 Cash' : '💳 Online'}</td>
       <td>${b.slots.map(to12HourDisplay).join(', ')}</td>
       <td>₹${b.totalAmount}</td>
       <td>₹${b.advanceAmount}</td>
@@ -615,6 +630,7 @@ async function loadData() {
       <td class="status-${balanceClass}">${b.balanceStatus}</td>
       <td>
         ${b.status === 'advance-paid' ? `<button class="action btn-cancel" onclick="confirmCancel('${b.id}')">Cancel Slot</button>` : ''}
+        ${b.status === 'cancelled' ? `<button class="action btn-secondary" style="border-color:#2ecc40; color:#2ecc40;" onclick="confirmRestore('${b.id}')">Restore Slot</button>` : ''}
         ${b.balanceStatus === 'due' && b.status !== 'cancelled' && b.status !== 'pending-payment' ? `<button class="action btn-secondary" onclick="collectBalance('${b.id}')">Mark Balance Collected</button>` : ''}
         <button class="action btn-cancel" onclick="confirmDelete('${b.id}')">Delete</button>
       </td>
@@ -633,6 +649,8 @@ async function loadData() {
       rtbody.appendChild(row);
     });
   } catch (err) {}
+
+  loadDeletedBookings();
 }
 
 async function updateStatus(id, status) {
@@ -665,8 +683,70 @@ async function deleteBooking(id) {
 }
 
 function confirmDelete(id) {
-  if (confirm('Permanently delete this booking? The slot will be freed up and the booking removed from all records. The advance is non-refundable. This cannot be undone.')) {
+  if (confirm('Delete this booking? The slot will be freed up. The booking is moved to "Recover Deleted Bookings" so you can undo this later. The advance is non-refundable.')) {
     deleteBooking(id);
+  }
+}
+
+// ================= Recover a cancelled booking =================
+async function restoreBooking(id) {
+  try {
+    const res = await authFetch(`${API_BASE}/host/bookings/${id}/restore`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || 'Could not restore the booking.');
+      return;
+    }
+    alert(`✅ Booking ${id} restored. Its slot is confirmed again.`);
+    loadData();
+  } catch (err) {}
+}
+
+function confirmRestore(id) {
+  if (confirm('Restore this cancelled booking? Its slot will be held again (if it is still free), and it will count as confirmed. Continue?')) {
+    restoreBooking(id);
+  }
+}
+
+// ================= Rendered deleted bookings table =================
+async function loadDeletedBookings() {
+  try {
+    const res = await authFetch(`${API_BASE}/host/bookings/deleted`);
+    const bookings = await res.json();
+    const tbody = document.querySelector('#deletedBookingsTable tbody');
+    tbody.innerHTML = '';
+    bookings.forEach(b => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${b.id}</td><td>${formatBookedAt(b.createdAt)}</td><td>${b.date}</td>
+        <td>${b.name}</td><td>${b.phone}</td>
+        <td>${b.sport}</td>
+        <td>${b.slots.map(to12HourDisplay).join(', ')}</td>
+        <td>₹${b.advanceAmount}</td><td>₹${b.balanceAmount}</td>
+        <td><button class="action btn-secondary" style="border-color:#2ecc40; color:#2ecc40;" onclick="confirmRecover('${b.id}')">Recover</button></td>
+      `;
+      tbody.appendChild(row);
+    });
+  } catch (err) {}
+}
+
+async function recoverBooking(id) {
+  try {
+    const res = await authFetch(`${API_BASE}/host/bookings/${id}/recover`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || 'Could not recover the booking.');
+      return;
+    }
+    alert(`✅ Booking ${id} recovered. It is back in the main list.`);
+    loadData();
+    loadDeletedBookings();
+  } catch (err) {}
+}
+
+function confirmRecover(id) {
+  if (confirm(`Recover booking ${id}? It will return to the main bookings list. Note: its slot is only held again if it is still free. Continue?`)) {
+    recoverBooking(id);
   }
 }
 

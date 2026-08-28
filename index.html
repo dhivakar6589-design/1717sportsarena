@@ -207,16 +207,30 @@
       <div id="slotGrid" class="slot-grid"></div>
     </div>
 
+    <div class="form-group">
+      <label>Payment Method</label>
+      <div class="sport-toggle">
+        <label class="sport-option">
+          <input type="radio" name="paymentMode" value="online" checked>
+          <span>💳 Pay Online (₹100/slot advance)</span>
+        </label>
+        <label class="sport-option">
+          <input type="radio" name="paymentMode" value="cash">
+          <span>💵 Pay Cash at Turf (full amount)</span>
+        </label>
+      </div>
+    </div>
+
     <div id="priceSummary" class="price-summary" style="display:none;">
       <div class="price-row"><span>Total Amount</span><span id="totalAmt">₹0</span></div>
-      <div class="price-row highlight"><span>Pay Now (Advance)</span><span id="advanceAmt">₹100</span></div>
+      <div class="price-row highlight" id="advanceRow"><span>Pay Now (Advance)</span><span id="advanceAmt">₹100</span></div>
       <div class="price-row"><span>Pay at Turf (Balance)</span><span id="balanceAmt">₹0</span></div>
-      <p class="refund-notice">💳 Advance payment is ₹100 per slot (non-refundable, including in case of cancellation). Example: 3 slots = ₹300 advance.</p>
+      <p class="refund-notice" id="refundNotice">💳 Advance payment is ₹100 per slot (non-refundable, including in case of cancellation). Example: 3 slots = ₹300 advance.</p>
     </div>
 
     <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
       <input type="checkbox" id="agreeRefundPolicy" required style="width: auto;">
-      <label for="agreeRefundPolicy" style="margin: 0; font-size: 13px;">
+      <label for="agreeRefundPolicy" id="agreeRefundLabel" style="margin: 0; font-size: 13px;">
         I understand the advance payment is non-refundable.
       </label>
     </div>

@@ -847,6 +847,10 @@ setInterval(() => {
 
 async function startServer() {
   await db.initSchema();
+  // Automatically move old finished bookings (completed/cancelled, play date at
+  // least 3 months in the past) out of the live table into archive_bookings.
+  // Runs on every server start to keep the live table small and fast.
+  await db.archiveOldBookings(3);
   await ensureHostAccount();
 
   // Start the server — HTTPS if SSL cert/key paths are provided in backend/.env

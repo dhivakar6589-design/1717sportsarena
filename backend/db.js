@@ -98,6 +98,50 @@ async function initSchema() {
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS collectedOnline INTEGER NOT NULL DEFAULT 0
   `);
 
+  // Archive of old, finished bookings. Same shape as `bookings`. Rows are moved
+  // here (copy + delete) by archiveOldBookings() to keep the live table small.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS archive_bookings (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      date TEXT NOT NULL,
+      sport TEXT NOT NULL,
+      format TEXT NOT NULL,
+      slots TEXT NOT NULL,
+      totalAmount INTEGER NOT NULL,
+      advanceAmount INTEGER NOT NULL,
+      balanceAmount INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      paymentMode TEXT,
+      balanceStatus TEXT,
+      createdAt TEXT NOT NULL,
+      paymentId TEXT,
+      refundStatus TEXT,
+      deletedAt TEXT,
+      collectedCash INTEGER NOT NULL DEFAULT 0,
+      collectedOnline INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  // Existing archive tables created before the collection columns existed get
+  // them added here too, mirroring the ALTERs on the live bookings table.
+  await pool.query(`
+    ALTER TABLE archive_bookings ADD COLUMN IF NOT EXISTS paymentMode TEXT
+  `);
+  await pool.query(`
+    ALTER TABLE archive_bookings ADD COLUMN IF NOT EXISTS balanceStatus TEXT
+  `);
+  await pool.query(`
+    ALTER TABLE archive_bookings ADD COLUMN IF NOT EXISTS deletedAt TEXT
+  `);
+  await pool.query(`
+    ALTER TABLE archive_bookings ADD COLUMN IF NOT EXISTS collectedCash INTEGER NOT NULL DEFAULT 0
+  `);
+  await pool.query(`
+    ALTER TABLE archive_bookings ADD COLUMN IF NOT EXISTS collectedOnline INTEGER NOT NULL DEFAULT 0
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS reviews (
       id SERIAL PRIMARY KEY,
@@ -137,4 +181,44 @@ async function initSchema() {
   `);
 }
 
-module.exports = { pool, initSchema, get, all, run };
+// Move finished bookings (completed/cancelled) whose play date is at least
+// `months` in the past out of the live `bookings` table into `archive_bookings`,
+// preserving full history while keeping the live table small and fast. The move
+// is wrapped in a transaction so a crash can never lose data halfway. Runs
+// automatically on server start (see server.js).
+async function archiveOldBookings(months = 3) {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - months);
+  const cy = cutoff.getFullYear();
+  const cm = String(cutoff.getMonth() + 1).padStart(2, '0');
+  const cd = String(cutoff.getDate()).padStart(2, '0');
+  const cutoffDate = `${cy}-${cm}-${cd}`;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(toPostgres(`
+      INSERT INTO archive_bookings (id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, paymentMode, balanceStatus, createdAt, paymentId, refundStatus, deletedAt, collectedCash, collectedOnline)
+      SELECT id, name, phone, date, sport, format, slots, totalAmount, advanceAmount, balanceAmount, status, paymentMode, balanceStatus, createdAt, paymentId, refundStatus, deletedAt, collectedCash, collectedOnline
+      FROM bookings
+      WHERE status IN ('completed', 'cancelled') AND date < $1
+    `), [cutoffDate]);
+    const result = await client.query(toPostgres(`
+      DELETE FROM bookings
+      WHERE status IN ('completed', 'cancelled') AND date < $1
+    `), [cutoffDate]);
+    await client.query('COMMIT');
+    const count = result.rowCount || 0;
+    if (count > 0) {
+      console.log(`🗄️ Archived ${count} old booking(s) (completed/cancelled, play date before ${cutoffDate}).`);
+    }
+    return count;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { pool, initSchema, get, all, run, archiveOldBookings };

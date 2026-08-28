@@ -9,7 +9,7 @@ const http = require('http');
 const https = require('https');
 require('dotenv').config();
 const db = require('./db');
-const { sendWhatsApp } = require('./whatsapp');
+const { sendWhatsApp, indiaE164 } = require('./whatsapp');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -204,6 +204,33 @@ function localDateISO(d = new Date()) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+// ---------- HELPER: automatic confirmation message to the customer ----------
+function buildCustomerConfirmation(booking) {
+  const slots = JSON.parse(booking.slots).join(', ');
+  const head = `🎉 Booking confirmed — 1717 Sports Arena\n\n`;
+  const details =
+    `Booking ID: ${booking.id}\n` +
+    `${booking.name}\n` +
+    `${booking.sport.toUpperCase()} (${booking.format}) — ${booking.date}\n` +
+    `Slots: ${slots}\n`;
+  const payment = booking.paymentMode === 'cash'
+    ? `\nTotal: ₹${booking.totalAmount} — payable when you arrive at the turf.`
+    : `\nAdvance paid: ₹${booking.advanceAmount}\nBalance due at turf: ₹${booking.balanceAmount}`;
+  return head + details + payment + `\n\nSee you on the turf! 🏟️`;
+}
+
+// Send the confirmation to the customer's WhatsApp automatically. Best-effort:
+// if the phone isn't a valid Indian mobile or WhatsApp isn't configured, it just
+// skips with a log line — booking is never affected.
+async function sendCustomerConfirmation(booking) {
+  const to = indiaE164(booking.phone);
+  if (!to) {
+    console.log(`ℹ️  Skipping customer WhatsApp for ${booking.id}: phone is not a valid Indian mobile (${booking.phone}).`);
+    return;
+  }
+  await sendWhatsApp(buildCustomerConfirmation(booking), to);
 }
 
 // ---------- HELPER: blocked (host-unavailable) slots for a date ----------
@@ -437,8 +464,13 @@ app.get('/api/reviews', async (req, res) => {
 });
 
 // ================= HOST-ONLY: get all ACTIVE bookings (requires login token) =================
+// Excludes 'pending-payment' bookings (a customer clicked book but the advance was
+// never verified, e.g. they abandoned the payment screen). Slot tracking only shows
+// a booking once its advance transaction is actually verified.
 app.get('/api/host/bookings', requireHostAuth, async (req, res) => {
-  const rows = await db.all('SELECT * FROM bookings WHERE deletedAt IS NULL ORDER BY createdAt DESC');
+  const rows = await db.all(
+    `SELECT * FROM bookings WHERE deletedAt IS NULL AND status != 'pending-payment' ORDER BY createdAt DESC`
+  );
   const bookings = rows.map(b => ({ ...b, slots: JSON.parse(b.slots) }));
   res.json(bookings);
 });
@@ -631,6 +663,13 @@ app.post('/api/host/bookings', requireHostAuth, async (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'advance-paid', 'cash', 'due', ?)
   `, [id, name, phone, date, sport, format, JSON.stringify(slots), totalAmount, totalAmount, createdAt]);
 
+  // Automatically confirm the booking to the customer by WhatsApp (best-effort)
+  await sendCustomerConfirmation({
+    id, name, phone, date, sport, format, slots: JSON.stringify(slots),
+    totalAmount, advanceAmount: 0, balanceAmount: totalAmount,
+    paymentMode: 'cash'
+  });
+
   res.json({ success: true, bookingId: id });
 });
 
@@ -798,6 +837,9 @@ app.post('/api/payment/verify', async (req, res) => {
     `Slots: ${JSON.parse(booking.slots).join(', ')}\n` +
     `Advance paid: ₹${booking.advanceAmount} | Balance due at turf: ₹${booking.balanceAmount}`
   );
+
+  // Automatically send the confirmation to the customer too (best-effort)
+  await sendCustomerConfirmation(booking);
 
   res.json({ success: true });
 });

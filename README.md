@@ -54,18 +54,33 @@ Notes
 - The server ignores client-supplied prices — slot amounts are always recomputed
   server-side, so tampering with the page cannot change what you're charged.
 
-WhatsApp alerts to the host
----------------------------
-The host gets a WhatsApp message whenever a customer creates a booking and again
-when the advance payment is confirmed. Uses Meta's WhatsApp Cloud API (Node 18+
-has built-in `fetch`, no extra npm package). Set these in `backend/.env`:
+WhatsApp messages (host alerts + automatic customer confirmations)
+------------------------------------------------------------------
+Uses Meta's WhatsApp Cloud API (Node 18+ has built-in `fetch`, no extra npm
+package). Set these in `backend/.env`:
 
 - `WHATSAPP_TOKEN` — Meta permanent access token (System User token).
 - `WHATSAPP_PHONE_ID` — the WhatsApp Business number's Phone Number ID.
-- `HOST_WHATSAPP` — host's personal WhatsApp in E.164 format, e.g. `918123456789`.
+- `HOST_WHATSAPP` — host's personal WhatsApp in E.164 format, e.g. `918123456789`
+  (only needed for the host alerts below).
 
-Alerts are best-effort (never block or fail a booking). Leave the vars empty to
-disable WhatsApp alerts entirely.
+What gets sent automatically:
+- To the HOST (`HOST_WHATSAPP`): when a customer creates a booking, and again when
+  the advance payment is confirmed.
+- To the CUSTOMER (their booking phone number we sent to): an automatic booking
+  confirmation whenever the advance payment is confirmed (online booking) or the
+  host manually books a slot for them. Customer numbers are +91 Indian mobiles.
+
+All messages are best-effort (never block or fail a booking/save). Leave the vars
+empty to disable WhatsApp entirely.
+
+IMPORTANT (Meta policy): To proactively message a customer who has not messaged
+you first in the last 24h, Meta requires an APPROVED message template created in
+Meta Business Manager. The code sends a plain-text message, which works whenever
+there is an open 24h customer-initiated conversation. For reliable proactive
+confirmations, create a confirmation template in Meta, then switch the customer
+send to `type:'template'` with the component params in `backend/whatsapp.js`.
+
 
 Security
 - CORS is restricted to an allowlist. For a custom domain, set `ALLOWED_ORIGINS`

@@ -287,10 +287,6 @@
       <div class="value" id="confirmedCount">0</div>
     </div>
     <div class="summary-card">
-      <h3>Pending Payment</h3>
-      <div class="value" id="pendingCount">0</div>
-    </div>
-    <div class="summary-card">
       <h3>Today's Bookings</h3>
       <div class="value" id="todayCount">0</div>
     </div>
@@ -570,7 +566,6 @@ async function loadData() {
     b.status === 'advance-paid' || b.status === 'completed'
   );
   const activeBookings = bookings.filter(b => b.status === 'advance-paid' || b.status === 'completed');
-
   const advanceRevenue = paidAdvanceBookings.reduce((sum, b) => sum + Number(b.advanceAmount), 0);
   const cashRevenue = bookings.reduce((sum, b) => sum + collectedAmounts(b).cash, 0);
   const onlineRevenue = bookings.reduce((sum, b) => sum + collectedAmounts(b).online, 0);
@@ -582,7 +577,6 @@ async function loadData() {
   const todayOnline = bookings.filter(b => b.date === today).reduce((sum, b) => sum + collectedAmounts(b).online, 0);
   const todayRevenue = todayAdvance + todayCash + todayOnline;
 
-  const pendingCount = bookings.filter(b => b.status === 'pending-payment').length;
   const confirmedCount = activeBookings.length;
   const todayCount = bookings.filter(b => b.date === today).length;
 
@@ -593,7 +587,6 @@ async function loadData() {
   document.getElementById('onlineRevenue').textContent = '₹' + onlineRevenue;
   document.getElementById('totalBookings').textContent = bookings.length;
   document.getElementById('confirmedCount').textContent = confirmedCount;
-  document.getElementById('pendingCount').textContent = pendingCount;
   document.getElementById('todayCount').textContent = todayCount;
   document.getElementById('todayRevenue').textContent = '₹' + todayRevenue;
 

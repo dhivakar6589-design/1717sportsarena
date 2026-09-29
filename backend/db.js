@@ -3,6 +3,17 @@ const { Pool } = require('pg');
 // Postgres connection. Set DATABASE_URL (e.g. Neon/Supabase) in backend/.env or Render env vars.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+
+  // Keep PostgreSQL connections low enough for a free/small database.
+  max: 5,
+  min: 0,
+
+  // Close idle connections after 30 seconds.
+  idleTimeoutMillis: 30000,
+
+  // Don't wait indefinitely for a connection.
+  connectionTimeoutMillis: 10000,
+
   ssl: process.env.DATABASE_URL && !/localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL)
     ? { rejectUnauthorized: false }
     : undefined

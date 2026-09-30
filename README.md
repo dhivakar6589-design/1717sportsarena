@@ -58,8 +58,10 @@ Optional: Use the provided PowerShell helper to launch the backend and open the 
 Notes
 - Data lives in PostgreSQL via `DATABASE_URL` (Neon, Supabase, or any hosted Postgres).
   Tables are created automatically on first start.
-- Uploaded images are saved to `backend/uploads` and served at `http://localhost:4000/uploads/...`.
-  Set `DATA_DIR` to move that folder onto a persistent disk.
+- Uploaded news images go to Cloudflare R2 when `R2_BUCKET` is set, otherwise to
+  `backend/uploads` on local disk. Either way they are served at `/uploads/...`.
+  See "News images (Cloudflare R2)" below — on a host with no persistent disk you
+  must use R2 or uploads vanish on every redeploy.
 - Razorpay is fully integrated (order creation, signature verification, refunds on
   cancellation). It uses whatever `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` are in
   the environment — test keys locally, live keys on the deployed server.
@@ -108,6 +110,33 @@ Security
 - HTTPS: to serve over HTTPS, put your certificate/key paths in `backend/.env`:
   `SSL_CERT_PATH=...` and `SSL_KEY_PATH=...`. The server starts in HTTPS mode when both are set.
 
+News images (Cloudflare R2)
+--------------------------
+Every free and low-cost host discards its local disk on redeploy, so news posters
+must live in object storage. Set these in `backend/.env` (and as secrets on your
+host) to switch uploads from disk to a Cloudflare R2 bucket:
+
+```ini
+R2_BUCKET=1717-sports-arena
+R2_ACCESS_KEY_ID=<R2 API token access key id>
+R2_SECRET_ACCESS_KEY=<R2 API token secret>
+R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+R2_PUBLIC_URL=https://media.1717sportsarena.com
+```
+
+- Create the bucket at Cloudflare → R2 → Create bucket.
+- Create an R2 API token (R2 → Manage R2 API Tokens) with **Object Read & Write**
+  scoped to that bucket only.
+- `R2_ENDPOINT` defaults to `https://<bucket>.r2.cloudflarestorage.com` if omitted.
+- `R2_PUBLIC_URL` is optional. The app serves images through its own
+  `/uploads/<name>` route either way, so this is only needed if you later want to
+  put a CDN in front of the bucket.
+- Leave these unset and the app keeps using `DATA_DIR/uploads`, which is correct
+  for local development and fine on a host with a real persistent disk.
+
+Existing rows keep working: the `/uploads/...` path stored in the database is the
+same on both backends.
+
 If anything errors during startup, copy the error and ask for help.
 
 Deployment (going public)
@@ -128,15 +157,40 @@ Option A — Deploy everything to Render (simplest, recommended)
      with a provider first and paste the connection string into the secret.
    - The host (admin) account is **created automatically** on first start from
      `ADMIN_USERNAME`/`ADMIN_PASSWORD` — you don't need to run `setup-host.js` on the server.
-   - Uploaded news images need a persistent disk to survive redeploys. On a paid
-     Render plan, add a disk mounted at `/data` and set `DATA_DIR=/data`. Bookings
-     themselves are safe regardless — they live in PostgreSQL.
-3. Your site will be at `https://one717-sports-arena.onrender.com` (update the URL in
-   `render.yaml` first if you change the service name).
+   - Set the R2 vars too (see "News images (Cloudflare R2)") so uploaded posters
+     survive redeploys. The free plan has no persistent disk, so this is required.
+3. Your site will be at `https://1717-sports-arena.onrender.com`.
    - CORS is automatic for same-origin requests, so nothing else needs configuring.
 
-Option B — Netlify (frontend) + Render/Railway (backend)
---------------------------------------------------------
+Note on the free plan: the service sleeps after ~15 minutes of inactivity and the
+first request then takes ~30 seconds to wake it. `render.yaml` deliberately does
+NOT set `healthCheckPath` — a scheduled health poll counts as traffic, keeps the
+instance awake around the clock, and exhausts the 750 monthly instance hours.
+Removing that poll is what lets a low-traffic site stay inside the allowance.
+If cold starts hurt customers, a $7/month Starter instance removes the sleep.
+
+Option B — A host that never sleeps (always-on free tier)
+---------------------------------------------------------
+Same code, no config changes needed; deploy from the same repo and set the same
+environment variables.
+
+- **Northflank** — the free Sandbox runs two services that do not sleep, which
+  matters because this site takes real payments and a 30-second cold start during
+  checkout loses bookings. Requires a card to verify the account.
+- **Koyeb** — one free instance, scales to zero after an hour of idleness (a
+  shorter wait than Render's 15 minutes). Requires a card with a $29 hold, and
+  Koyeb was acquired by Mistral in 2026 with its free Starter plan being retired,
+  so treat it as a short-term option.
+- **Railway** — $1/month of usage credit on the free plan. A quiet turf-booking
+  site fits inside that; it will not once traffic picks up.
+
+What is NOT a free option any more, despite older tutorials saying otherwise:
+Heroku (free dynos ended Nov 2022), Fly.io (permanent allowances ended Oct 2024,
+now a 2-hour trial then pay-as-you-go from ~$2/month), Glitch (ended 2025), and
+Cyclic (shut down 2024).
+
+Option C — Netlify (frontend) + Node host (backend)
+--------------------------------------------------
 1. Deploy the backend on Render (use a Web Service, not a static site) or Railway
    using the included `Dockerfile`/`Procfile`. Set `JWT_SECRET`, `RAZORPAY_KEY_ID`,
    `RAZORPAY_KEY_SECRET`, and `ALLOWED_ORIGINS` to your Netlify site URL.
@@ -149,18 +203,52 @@ Option B — Netlify (frontend) + Render/Railway (backend)
 
 3. Deploy the frontend files (index.html, host.html, css/, js/, images/) to Netlify.
 
-Option C — Deploy everything to Fly.io
---------------------------------------
+Custom domain (www.1717sportsarena.com)
+-----------------------------------------
+Whichever host you pick, connecting the domain is the same three steps:
+
+1. Point the DNS records at the host. For `www.1717sportsarena.com` an `A` record
+   (Render, VPS) or a `CNAME` (Netlify, Northflank, Koyeb) plus a host-provided
+   domain. The provider usually shows the exact value to use.
+2. Add the custom domain in the host's dashboard so it issues an HTTPS
+   certificate. Your hosting provider handles renewal.
+3. Add both hostnames to `ALLOWED_ORIGINS`:
+   `https://www.1717sportsarena.com,https://1717sportsarena.com`
+   `render.yaml` already ships these values, so a Render deploy needs no change.
+
+Keep `www` and the apex working. The canonical tag, `sitemap.xml` and `robots.txt`
+all reference `https://www.1717sportsarena.com/`, and Google treats the two
+hostnames as separate sites, so redirect the apex to `www` (or the reverse) at the
+DNS or host level rather than serving both with 200s. Also add your live domain to
+Razorpay → Settings → Website & App, otherwise checkout rejects it.
+
+Option D — Fly.io (no longer free, ~$2/month)
+----------------------------------------------
+Fly ended its permanent free allowances in October 2024, so `fly.toml` targets a
+paid deployment. It is still the cheapest always-on option if you would rather
+pay a couple of dollars than accept cold starts.
 1. Install `flyctl` (https://fly.io/docs/flyctl/install/) and log in (`fly auth login`).
 2. From this folder run:
    ```powershell
    fly launch --no-deploy          # uses fly.toml; creates the app
-   fly volumes create data --region bom --size 1   # persistent disk for uploaded images
    fly secrets set DATABASE_URL=... JWT_SECRET=... ADMIN_USERNAME=... ADMIN_PASSWORD=... RAZORPAY_KEY_ID=... RAZORPAY_KEY_SECRET=...
    fly deploy
    ```
+   No volume is needed — news images live in R2, not on disk.
 3. Open `https://1717-sports-arena.fly.dev` (adjust the region/app name in `fly.toml`
    first if you change them).
+
+Option E — A small VPS (most reliable, ~$5/month)
+--------------------------------------------------
+A $5-6 VPS (Hetzner, Contabo) running the included `Dockerfile` directly. Nothing
+sleeps, you get a real disk, and there is no platform quota to hit. For a
+business taking payments this is the option that behaves predictably.
+
+```powershell
+docker build -t arena .
+docker run -d -p 80:4000 --env-file backend/.env arena
+```
+Put Caddy or nginx in front for TLS, and point the domain at the server's IP.
 
 Notes for going live
 - HTTPS is provided automatically by the hosting platform (Render/Netlify).

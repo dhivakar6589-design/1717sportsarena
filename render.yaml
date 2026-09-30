@@ -7,7 +7,10 @@ services:
     plan: free
     buildCommand: cd backend && npm install
     startCommand: node backend/server.js
-    healthCheckPath: /api/news
+    # Deliberately no healthCheckPath. Render polls this path on a schedule and
+    # that poll counts as traffic, which keeps the free instance awake 24/7 and
+    # burns all 750 monthly instance hours. Without it the service sleeps after
+    # ~15 idle minutes, which is the intended free-tier behaviour.
     envVars:
       # Postgres connection string (Neon, Supabase, or any hosted Postgres).
       # Set this secret in Render.
@@ -32,3 +35,18 @@ services:
       # safety if the frontend is ever served from a different origin.
       - key: ALLOWED_ORIGINS
         value: https://www.1717sportsarena.com,https://1717sportsarena.com
+      # Cloudflare R2 bucket for news images. Free plan has 10GB and no egress
+      # charges. Without these the service writes to its ephemeral disk and
+      # every redeploy deletes uploaded posters.
+      # Create at Cloudflare → R2 → Create bucket, then an R2 API token with
+      # "Object Read & Write" on that bucket.
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_PUBLIC_URL
+        sync: false

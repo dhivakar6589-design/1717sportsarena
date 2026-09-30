@@ -55,10 +55,51 @@ function safeUploadName(originalName) {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${stem || 'image'}${extOut}`;
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => cb(null, safeUploadName(file.originalname))
-});
+// ---- Object storage (Cloudflare R2 / any S3-compatible bucket) ----
+// Every free and cheap host spins away its local disk, so news images are held
+// in object storage instead. Set R2_* to enable it; without those vars the app
+// falls back to writing under DATA_DIR/uploads exactly as before, so local
+// development and an existing self-hosted deploy keep working untouched.
+const R2_BUCKET = process.env.R2_BUCKET || '';
+const R2_ENABLED = !!(
+  R2_BUCKET &&
+  process.env.R2_ACCESS_KEY_ID &&
+  process.env.R2_SECRET_ACCESS_KEY
+);
+
+let s3Client = null;
+if (R2_ENABLED) {
+  const { S3Client } = require('@aws-sdk/client-s3');
+  s3Client = new S3Client({
+    region: 'auto',
+    endpoint: process.env.R2_ENDPOINT || `https://${R2_BUCKET}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY
+    }
+  });
+  console.log('✅ Object storage enabled (uploads go to bucket ' + R2_BUCKET + ').');
+} else {
+  console.warn('⚠️  R2_BUCKET not set — uploads will be written to ' + UPLOAD_DIR +
+    '. On a host with no persistent disk they will disappear on redeploy.');
+}
+
+// The public base URL images are served from. When R2 is on, the bucket is
+// normally fronted by a public custom domain or the r2.dev dev URL.
+const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || '').replace(/\/+$/, '');
+
+async function uploadToR2(key, body, contentType) {
+  const { PutObjectCommand } = require('@aws-sdk/client-s3');
+  await s3Client.send(new PutObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+    CacheControl: 'public, max-age=31536000, immutable'
+  }));
+}
+
+const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
@@ -68,9 +109,30 @@ const upload = multer({
     else cb(new Error('Only JPG, PNG, or WEBP images are allowed'));
   }
 });
-
-// Serve uploaded images publicly
+// Serve uploaded images. With object storage the bytes live in the bucket, so
+// /uploads/<name> is fetched from there; otherwise they are served from local
+// disk. Keeping the same /uploads path either way means the imagePath already
+// stored in the database never has to change when you switch storage backend.
+app.get('/uploads/:name', async (req, res, next) => {
+  if (!R2_ENABLED) return next();
+  try {
+    const { GetObjectCommand } = require('@aws-sdk/client-s3');
+    const obj = await s3Client.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: 'uploads/' + req.params.name }));
+    res.setHeader('Content-Type', obj.ContentType || 'application/octet-stream');
+    if (obj.ContentLength) res.setHeader('Content-Length', obj.ContentLength);
+    if (obj.ETag) res.setHeader('ETag', obj.ETag);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(obj.Body);
+  } catch (err) {
+    if (err && (err.name === 'NoSuchKey' || err.name === 'NotFound' || (err.$metadata && err.$metadata.httpStatusCode === 404))) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    console.error('⚠️ Failed to read object from storage:', err && err.message);
+    res.status(500).json({ error: 'Could not load image' });
+  }
+});
 app.use('/uploads', express.static(UPLOAD_DIR));
+
 const PORT = process.env.PORT || 4000;
 
 // JWT signing secret. A missing/weak secret in production would let anyone
@@ -736,21 +798,12 @@ app.patch('/api/host/bookings/:id/collect', requireHostAuth, async (req, res) =>
 // Verify an upload really is a JPEG/PNG/WEBP by inspecting its magic bytes.
 // Multer's fileFilter can only see the client-supplied Content-Type header,
 // which is trivially spoofed — a script could upload an arbitrary file.
-function sniffImageType(filePath) {
-  let fd;
-  try {
-    fd = fs.openSync(filePath, 'r');
-    const buf = Buffer.alloc(12);
-    fs.readSync(fd, buf, 0, 12, 0);
-    if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'jpeg';
-    if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))) return 'png';
-    if (buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') return 'webp';
-    return null;
-  } catch (err) {
-    return null;
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
-  }
+function sniffImageType(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'jpeg';
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))) return 'png';
+  if (buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') return 'webp';
+  return null;
 }
 
 // ================= HOST-ONLY: upload a news/poster post =================
@@ -758,16 +811,33 @@ app.post('/api/host/news', requireHostAuth, upload.single('image'), async (req, 
   const { title, description } = req.body;
   if (!title) return res.status(400).json({ error: 'Title is required' });
 
-  // Reject anything that is not genuinely an image, then delete the bad upload
-  // so it never sits in the public /uploads folder.
   let imagePath = null;
   if (req.file) {
-    const realType = sniffImageType(req.file.path);
-    if (!realType) {
-      fs.unlink(req.file.path, () => {});
+    const filename = safeUploadName(req.file.originalname);
+
+    // Reject anything that is not genuinely an image before it is stored
+    // anywhere. The check reads magic bytes from the in-memory buffer.
+    if (!sniffImageType(req.file.buffer)) {
       return res.status(400).json({ error: 'File is not a valid JPG, PNG, or WEBP image.' });
     }
-    imagePath = `/uploads/${req.file.filename}`;
+
+    if (R2_ENABLED) {
+      try {
+        await uploadToR2('uploads/' + filename, req.file.buffer, req.file.mimetype);
+      } catch (err) {
+        console.error('⚠️ Failed to upload to object storage:', err && err.message);
+        return res.status(500).json({ error: 'Could not upload the image. Please try again.' });
+      }
+    } else {
+      const dest = path.join(UPLOAD_DIR, filename);
+      try {
+        await fs.promises.writeFile(dest, req.file.buffer);
+      } catch (err) {
+        console.error('⚠️ Failed to write upload:', err && err.message);
+        return res.status(500).json({ error: 'Could not save the image. Please try again.' });
+      }
+    }
+    imagePath = `/uploads/${filename}`;
   }
 
   const createdAt = new Date().toISOString();
@@ -960,6 +1030,10 @@ app.use((err, req, res, next) => {
   }
   if (err && err.name === 'MulterError') {
     return res.status(400).json({ error: 'Upload failed: ' + err.message });
+  }
+  // fileFilter rejections are plain Errors with a user-facing message.
+  if (err && /Only JPG, PNG, or WEBP/.test(err.message || '')) {
+    return res.status(400).json({ error: err.message });
   }
   if (res.headersSent) return next(err);
   console.error('❌ Unhandled error:', err && err.stack ? err.stack : err);

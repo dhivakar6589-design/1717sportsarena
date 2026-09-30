@@ -29,7 +29,17 @@ cd backend
 node server.js
 ```
 
-The backend uses the `.env` file located at `backend/.env` (already included).
+The backend reads config from `backend/.env` (gitignored — you must create it). Minimum required:
+
+```ini
+DATABASE_URL=postgres://user:password@host:5432/dbname?sslmode=require
+JWT_SECRET=<long random string>
+ADMIN_USERNAME=yourhostname
+ADMIN_PASSWORD=yourpassword
+```
+
+The database schema (tables + columns) is created automatically on first start —
+no migration step needed.
 
 4. Open the frontend
 
@@ -46,8 +56,10 @@ Optional: Use the provided PowerShell helper to launch the backend and open the 
 ```
 
 Notes
-- The database file `turf.db` is stored in `backend/` (created automatically by the server).
+- Data lives in PostgreSQL via `DATABASE_URL` (Neon, Supabase, or any hosted Postgres).
+  Tables are created automatically on first start.
 - Uploaded images are saved to `backend/uploads` and served at `http://localhost:4000/uploads/...`.
+  Set `DATA_DIR` to move that folder onto a persistent disk.
 - Razorpay is fully integrated (order creation, signature verification, refunds on
   cancellation). It uses whatever `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` are in
   the environment — test keys locally, live keys on the deployed server.
@@ -87,7 +99,12 @@ Security
   in `backend/.env` as a comma-separated list, e.g.
   `ALLOWED_ORIGINS=https://yourturf.com,https://www.yourturf.com`.
 - Rate limiting is on: 300 API requests per 15 min per IP, 10 host-login attempts,
-  20 bookings, and 30 reviews per 15 min.
+  20 bookings, 20 payment requests, 20 booking lookups, and 30 reviews per 15 min.
+- `JWT_SECRET` is REQUIRED when `NODE_ENV=production`. The server refuses to boot
+  without it rather than falling back to a guessable default. In local dev it
+  falls back to a random per-process secret, so restarting invalidates sessions.
+- There is no endpoint that marks a booking paid without a verified Razorpay
+  signature. Payment state can only be changed by `POST /api/payment/verify`.
 - HTTPS: to serve over HTTPS, put your certificate/key paths in `backend/.env`:
   `SSL_CERT_PATH=...` and `SSL_KEY_PATH=...`. The server starts in HTTPS mode when both are set.
 
@@ -96,20 +113,24 @@ If anything errors during startup, copy the error and ask for help.
 Deployment (going public)
 ========================
 
-The backend is a Node.js/Express server with a file-based SQLite database, so it
-cannot run on a static-only host like Netlify. Deploy the whole app (or at least the
-backend) on a service that runs Node.js servers.
+The backend is a Node.js/Express server backed by PostgreSQL, so it cannot run on a
+static-only host like Netlify. Deploy the whole app (or at least the backend) on a
+service that runs Node.js servers.
 
 Option A — Deploy everything to Render (simplest, recommended)
 -------------------------------------------------------------
 1. Push this folder to a GitHub/GitLab repo.
 2. In Render: New → Blueprint, select the repo. It will use `render.yaml`.
-   - Set the secrets it asks for: `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`,
-     `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`.
+   - Set the secrets it asks for: `DATABASE_URL`, `JWT_SECRET`, `ADMIN_USERNAME`,
+     `ADMIN_PASSWORD`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`.
+   - `DATABASE_URL` must point at a hosted PostgreSQL (Neon, Supabase, etc.).
+     Render's own free Postgres is no longer available, so create the database
+     with a provider first and paste the connection string into the secret.
    - The host (admin) account is **created automatically** on first start from
      `ADMIN_USERNAME`/`ADMIN_PASSWORD` — you don't need to run `setup-host.js` on the server.
-   - A 1GB persistent disk is mounted at `/data`, where the SQLite DB and uploads live,
-     so data survives redeploys.
+   - Uploaded news images need a persistent disk to survive redeploys. On a paid
+     Render plan, add a disk mounted at `/data` and set `DATA_DIR=/data`. Bookings
+     themselves are safe regardless — they live in PostgreSQL.
 3. Your site will be at `https://one717-sports-arena.onrender.com` (update the URL in
    `render.yaml` first if you change the service name).
    - CORS is automatic for same-origin requests, so nothing else needs configuring.
@@ -134,8 +155,8 @@ Option C — Deploy everything to Fly.io
 2. From this folder run:
    ```powershell
    fly launch --no-deploy          # uses fly.toml; creates the app
-   fly volumes create data --region bom --size 1   # persistent disk for the DB + uploads
-   fly secrets set JWT_SECRET=... ADMIN_USERNAME=... ADMIN_PASSWORD=... RAZORPAY_KEY_ID=... RAZORPAY_KEY_SECRET=...
+   fly volumes create data --region bom --size 1   # persistent disk for uploaded images
+   fly secrets set DATABASE_URL=... JWT_SECRET=... ADMIN_USERNAME=... ADMIN_PASSWORD=... RAZORPAY_KEY_ID=... RAZORPAY_KEY_SECRET=...
    fly deploy
    ```
 3. Open `https://1717-sports-arena.fly.dev` (adjust the region/app name in `fly.toml`
@@ -144,9 +165,9 @@ Option C — Deploy everything to Fly.io
 Notes for going live
 - HTTPS is provided automatically by the hosting platform (Render/Netlify).
   The local HTTPS mode (`SSL_CERT_PATH`/`SSL_KEY_PATH`) is only for self-hosted setups.
-- Backend data lives on a persistent disk; your local `backend/turf.db` is NOT
-  transferred. The admin account is auto-created from the env vars on first boot.
-- Never commit `backend/.env` or `backend/turf.db` (see `.gitignore`).
+- Bookings live in your PostgreSQL database, not in the repo or on a disk.
+  The admin account is auto-created from the env vars on first boot.
+- Never commit `backend/.env` (see `.gitignore`).
 
 Activating real (live) payments
 ------------------------------
@@ -168,8 +189,10 @@ money:
 5. Verify: open the server logs — you should see
    `✅ Razorpay is LIVE — real payments are enabled.` If it says TEST mode, the
    live keys are not loaded.
-6. Do a small real test booking (₹100 advance) and then cancel it from My
-   Bookings to confirm the refund lands back in your account.
+6. Do a small real test booking (₹100 advance) and confirm the slot appears in
+   the host dashboard. Note that self-cancellation from My Bookings does NOT
+   trigger a refund — advances are non-refundable by the site's stated policy.
+   Refunds only fire automatically if a slot is taken by someone else mid-payment.
 
 Never paste the live Key Secret into chat, commit it to the repo, or put it in
 `backend/.env` on a shared machine. Keep it in the platform's secret store.

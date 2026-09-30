@@ -9,9 +9,13 @@ services:
     startCommand: node backend/server.js
     healthCheckPath: /api/news
     envVars:
-      # Postgres connection string (Render Postgres). Set this secret in Render.
+      # Postgres connection string (Neon, Supabase, or any hosted Postgres).
+      # Set this secret in Render.
       - key: DATABASE_URL
         sync: false
+      # Required in production — the server refuses to boot without it.
+      - key: NODE_ENV
+        value: production
       - key: JWT_SECRET
         sync: false
       - key: ADMIN_USERNAME

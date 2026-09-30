@@ -406,6 +406,19 @@ function logout() {
   document.getElementById('dashboard').style.display = 'none';
 }
 
+// Escape a value before injecting it into innerHTML. Every field that came from
+// a customer (name, phone, review text, news title) MUST pass through this,
+// otherwise a crafted review can run JavaScript in the host's session and steal
+// the JWT held in sessionStorage.
+function escapeHTML(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // Convert a 24h API slot label like "14:00 - 15:00" to 12-hour AM/PM display form
 function to12HourDisplay(label) {
   const m = /^([0-9]{2}):00 - ([0-9]{2}):00$/.exec(label || '');
@@ -449,12 +462,12 @@ let trackingFilter = 'all';
 let trackingFilterDate = '';
 
 function filterBookings(bookings) {
-  const today = blockDateISO(new Date());
+  const today = hostDateISO(new Date());
   if (trackingFilter === 'today') return bookings.filter(b => b.date === today);
   if (trackingFilter === 'tomorrow') {
     const t = new Date();
     t.setDate(t.getDate() + 1);
-    return bookings.filter(b => b.date === blockDateISO(t));
+    return bookings.filter(b => b.date === hostDateISO(t));
   }
   if (trackingFilter === 'custom' && trackingFilterDate) {
     return bookings.filter(b => b.date === trackingFilterDate);
@@ -464,7 +477,7 @@ function filterBookings(bookings) {
 
 function sortBookings(bookings, key) {
   const arr = bookings.slice();
-  const today = blockDateISO(new Date());
+  const today = hostDateISO(new Date());
   const tieBreak = (a, b) => (a.date + a.createdAt).localeCompare(b.date + b.createdAt);
 
   switch (key) {
@@ -546,7 +559,9 @@ async function loadData() {
   bookings = filterBookings(bookings);
   bookings = sortBookings(bookings, trackingSort);
 
-  const today = new Date().toISOString().split('T')[0];
+  // Local calendar day. Using toISOString() here would compare against the UTC
+  // date, which is a different day for IST users between 00:00 and 05:30.
+  const today = hostDateISO(new Date());
 
   // Only bookings that actually collected the advance count as revenue.
   // Cancelled bookings are excluded — a cancelled slot was never collected.
@@ -602,7 +617,7 @@ async function loadData() {
   popularTbody.innerHTML = '';
   sortedSlots.forEach(([slot, count]) => {
     const row = document.createElement('tr');
-    row.innerHTML = `<td>${to12HourDisplay(slot)}</td><td>${count}</td>`;
+    row.innerHTML = `<td>${escapeHTML(to12HourDisplay(slot))}</td><td>${count}</td>`;
     popularTbody.appendChild(row);
   });
 
@@ -615,21 +630,21 @@ async function loadData() {
 
     const row = document.createElement('tr');
     row.innerHTML = `
-      <td>${b.id}</td><td>${formatBookedAt(b.createdAt)}</td><td>${b.date}</td>
-      <td>${b.name}</td><td>${b.phone}</td>
-      <td>${b.sport}</td>
-      <td>${b.slots.map(to12HourDisplay).join(', ')}</td>
-      <td>₹${b.totalAmount}</td>
+      <td>${escapeHTML(b.id)}</td><td>${escapeHTML(formatBookedAt(b.createdAt))}</td><td>${escapeHTML(b.date)}</td>
+      <td>${escapeHTML(b.name)}</td><td>${escapeHTML(b.phone)}</td>
+      <td>${escapeHTML(b.sport)}</td>
+      <td>${escapeHTML(b.slots.map(to12HourDisplay).join(', '))}</td>
+      <td>₹${escapeHTML(b.totalAmount)}</td>
       <td>${(b.paymentMode || 'online') === 'cash' && b.advanceAmount === 0 ? '₹' + (collectedAmounts(b).cash + collectedAmounts(b).online) : '₹' + b.advanceAmount}</td>
-      <td>₹${b.balanceAmount}</td>
-      <td>${canCollectBalance(b) ? `<input type="number" id="cashShare_${b.id}" value="${collectedAmounts(b).cash}" min="0" max="${b.balanceAmount}" style="width:72px; padding:5px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.08); color:#fff;">` : `₹${collectedAmounts(b).cash}`}</td>
-      <td>${canCollectBalance(b) ? `<input type="number" id="onlineShare_${b.id}" value="${collectedAmounts(b).online}" min="0" max="${b.balanceAmount}" style="width:72px; padding:5px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.08); color:#fff;">` : `₹${collectedAmounts(b).online}`}</td>
-      <td class="status-${statusClass}">${b.status}</td>
-      <td class="status-${balanceClass}">${b.balanceStatus}</td>
+      <td>₹${escapeHTML(b.balanceAmount)}</td>
+      <td>${canCollectBalance(b) ? `<input type="number" id="cashShare_${escapeHTML(b.id)}" value="${collectedAmounts(b).cash}" min="0" max="${b.balanceAmount}" style="width:72px; padding:5px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.08); color:#fff;">` : `₹${collectedAmounts(b).cash}`}</td>
+      <td>${canCollectBalance(b) ? `<input type="number" id="onlineShare_${escapeHTML(b.id)}" value="${collectedAmounts(b).online}" min="0" max="${b.balanceAmount}" style="width:72px; padding:5px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.08); color:#fff;">` : `₹${collectedAmounts(b).online}`}</td>
+      <td class="status-${statusClass}">${escapeHTML(b.status)}</td>
+      <td class="status-${balanceClass}">${escapeHTML(b.balanceStatus)}</td>
       <td>
-        ${b.status === 'advance-paid' ? `<button class="action btn-cancel" onclick="confirmCancel('${b.id}')">Cancel Slot</button>` : ''}
-        ${b.status === 'cancelled' ? `<button class="action btn-secondary" style="border-color:#2ecc40; color:#2ecc40;" onclick="confirmRestore('${b.id}')">Restore Slot</button>` : ''}
-        ${canCollectBalance(b) ? `<button class="action btn-secondary" onclick="saveCollection('${b.id}')">Save Collection</button>` : ''}
+        ${b.status === 'advance-paid' ? `<button class="action btn-cancel" onclick="confirmCancel('${escapeHTML(b.id)}')">Cancel Slot</button>` : ''}
+        ${b.status === 'cancelled' ? `<button class="action btn-secondary" style="border-color:#2ecc40; color:#2ecc40;" onclick="confirmRestore('${escapeHTML(b.id)}')">Restore Slot</button>` : ''}
+        ${canCollectBalance(b) ? `<button class="action btn-secondary" onclick="saveCollection('${escapeHTML(b.id)}')">Save Collection</button>` : ''}
       </td>
     `;
     tbody.appendChild(row);
@@ -642,7 +657,7 @@ async function loadData() {
     rtbody.innerHTML = '';
     reviews.forEach(r => {
       const row = document.createElement('tr');
-      row.innerHTML = `<td>${r.name}</td><td>${'⭐'.repeat(r.rating)}</td><td>${r.text}</td>`;
+      row.innerHTML = `<td>${escapeHTML(r.name)}</td><td>${'⭐'.repeat(Number(r.rating) || 0)}</td><td>${escapeHTML(r.text)}</td>`;
       rtbody.appendChild(row);
     });
   } catch (err) {}
@@ -662,24 +677,6 @@ async function updateStatus(id, status) {
 function confirmCancel(id) {
   if (confirm('Are you sure you want to cancel this booking? This will free up the slot for other customers. The advance payment is non-refundable and will NOT be returned.')) {
     updateStatus(id, 'cancelled');
-  }
-}
-
-async function deleteBooking(id) {
-  try {
-    const res = await authFetch(`${API_BASE}/host/bookings/${id}`, { method: 'DELETE' });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(data.error || 'Could not delete the booking.');
-      return;
-    }
-    loadData();
-  } catch (err) {}
-}
-
-function confirmDelete(id) {
-  if (confirm('Delete this booking? The slot will be freed up. The booking is moved to "Recover Deleted Bookings" so you can undo this later. The advance is non-refundable.')) {
-    deleteBooking(id);
   }
 }
 
@@ -743,10 +740,6 @@ function hostDateISO(d) {
   return `${y}-${m}-${day}`;
 }
 
-function blockDateISO(d) {
-  return hostDateISO(d);
-}
-
 function hostGetPriceForHour(hour) {
   if (hour >= 6 && hour < 14) return 500;
   if (hour >= 14 && hour < 18) return 750;
@@ -775,10 +768,6 @@ function setHostMode(mode) {
   hostSelectedSlots = [];
   document.getElementById('hostMsg').textContent = '';
   renderHostGrid();
-}
-
-function updateHostModeButtons() {
-  setHostMode('block');
 }
 
 async function renderHostGrid() {
@@ -967,7 +956,7 @@ function hostSave() {
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('hostDate').value = hostDateISO(new Date());
-  updateHostModeButtons();
+  setHostMode('block');
   renderHostGrid();
   document.getElementById('hostDate').addEventListener('change', renderHostGrid);
   document.querySelectorAll('input[name="hostSport"]').forEach(r => r.addEventListener('change', renderHostGrid));
@@ -1029,11 +1018,11 @@ async function loadNews() {
     posts.forEach(p => {
       const row = document.createElement('tr');
       row.innerHTML = `
-        <td>${p.imagePath ? `<img src="${ASSET_BASE}${p.imagePath}" style="width:60px; border-radius:6px;">` : '—'}</td>
-        <td>${p.title}</td>
-        <td>${p.description || ''}</td>
-        <td>${new Date(p.createdAt).toLocaleDateString()}</td>
-        <td><button class="action btn-secondary" onclick="deleteNews(${p.id})">Delete</button></td>
+        <td>${p.imagePath ? `<img src="${escapeHTML(ASSET_BASE + p.imagePath)}" alt="" style="width:60px; border-radius:6px;">` : '—'}</td>
+        <td>${escapeHTML(p.title)}</td>
+        <td>${escapeHTML(p.description || '')}</td>
+        <td>${escapeHTML(new Date(p.createdAt).toLocaleDateString())}</td>
+        <td><button class="action btn-secondary" onclick="deleteNews(${Number(p.id) || 0})">Delete</button></td>
       `;
       tbody.appendChild(row);
     });

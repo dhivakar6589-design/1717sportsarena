@@ -1,3 +1,12 @@
+// Shared HTML escaper. Every value that originates from the database (customer
+// names, review text, news titles) must go through this before being injected
+// with innerHTML.
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const reviewForm = document.getElementById('reviewForm');
   const reviewsList = document.getElementById('reviewsList');
@@ -18,12 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
         hamburger.setAttribute('aria-expanded', 'false');
       });
     });
-  }
-
-  function escapeHTML(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
   }
 
   async function renderReviews() {
@@ -105,14 +108,38 @@ async function renderPublicNews() {
     posts.forEach(p => {
       const card = document.createElement('div');
       card.className = 'news-card';
-      card.innerHTML = `
-        ${p.imagePath ? `<img src="${ASSET_BASE}${p.imagePath}" alt="${p.title}" onclick="openLightbox('${ASSET_BASE}${p.imagePath}')">` : ''}
-        <div class="news-card-content">
-          <h3>${p.title}</h3>
-          <p>${p.description || ''}</p>
-          <span class="news-date">${new Date(p.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-        </div>
-      `;
+
+      if (p.imagePath) {
+        const img = document.createElement('img');
+        const src = ASSET_BASE + p.imagePath;
+        img.src = src;
+        img.alt = p.title || 'News image';
+        img.loading = 'lazy';
+        // addEventListener instead of an inline onclick= so a crafted filename
+        // can never break out of the HTML attribute.
+        img.addEventListener('click', () => openLightbox(src));
+        card.appendChild(img);
+      }
+
+      const content = document.createElement('div');
+      content.className = 'news-card-content';
+
+      const title = document.createElement('h3');
+      title.textContent = p.title || '';
+      content.appendChild(title);
+
+      if (p.description) {
+        const desc = document.createElement('p');
+        desc.textContent = p.description;
+        content.appendChild(desc);
+      }
+
+      const dateEl = document.createElement('span');
+      dateEl.className = 'news-date';
+      dateEl.textContent = new Date(p.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+      content.appendChild(dateEl);
+
+      card.appendChild(content);
       newsList.appendChild(card);
     });
   } catch (err) {

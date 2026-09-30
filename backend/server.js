@@ -22,16 +22,19 @@ if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET
-});
-
 // Log which payment mode is active so it's obvious before going live.
 // Test keys start with rzp_test_, live keys with rzp_live_.
+// The Razorpay constructor throws when key_id is missing, so it is only built
+// when credentials exist — otherwise the whole server would refuse to boot just
+// because payments are not configured yet.
 const RP_KEY = process.env.RAZORPAY_KEY_ID || '';
-if (!RP_KEY || !process.env.RAZORPAY_KEY_SECRET) {
-  console.warn('⚠️  Razorpay keys are missing. Payments will fail.');
+const RP_SECRET = process.env.RAZORPAY_KEY_SECRET || '';
+const razorpay = RP_KEY && RP_SECRET
+  ? new Razorpay({ key_id: RP_KEY, key_secret: RP_SECRET })
+  : null;
+
+if (!razorpay) {
+  console.warn('⚠️  Razorpay keys are missing. Booking endpoints will still work, but payments will fail.');
 } else if (RP_KEY.startsWith('rzp_test_')) {
   console.warn('ℹ️  Razorpay is in TEST mode — no real money moves.');
 } else {
@@ -39,12 +42,22 @@ if (!RP_KEY || !process.env.RAZORPAY_KEY_SECRET) {
 }
 
 // ---- File upload setup ----
+// Build a safe, collision-resistant filename from the client-supplied original
+// name. Everything outside [A-Za-z0-9._-] is dropped so a crafted name can never
+// contain path separators, quotes, or angle brackets (it is later embedded into
+// an inline onclick handler on the frontend).
+function safeUploadName(originalName) {
+  const ext = path.extname(String(originalName || '')).toLowerCase();
+  const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
+  const extOut = allowedExt.includes(ext) ? ext : '';
+  const base = path.basename(String(originalName || ''), path.extname(String(originalName || '')));
+  const stem = base.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 40);
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${stem || 'image'}${extOut}`;
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const uniqueName = Date.now() + '-' + file.originalname.replace(/\s+/g, '-');
-    cb(null, uniqueName);
-  }
+  filename: (req, file, cb) => cb(null, safeUploadName(file.originalname))
 });
 const upload = multer({
   storage,
@@ -59,7 +72,20 @@ const upload = multer({
 // Serve uploaded images publicly
 app.use('/uploads', express.static(UPLOAD_DIR));
 const PORT = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-env-file';
+
+// JWT signing secret. A missing/weak secret in production would let anyone
+// forge a host token, so we refuse to boot rather than fall back to a guessable
+// default. Outside production we fall back to an ephemeral random secret (all
+// tokens die on restart, which is fine for local dev) instead of crashing.
+const DEV_JWT_SECRET = require('crypto').randomBytes(32).toString('hex');
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET is required in production. Set it in backend/.env or your host env vars.');
+  }
+  console.warn('⚠️  JWT_SECRET is not set — using a random secret for this process only. Set it in backend/.env.');
+}
+const JWT_SIGNING_SECRET = JWT_SECRET || DEV_JWT_SECRET;
 
 // ---------- SECURITY HARDENING ----------
 
@@ -160,6 +186,13 @@ const reviewLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many reviews. Try again later.' }
 });
+const lookupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many lookups. Try again later.' }
+});
 
 // Serve ONLY the public frontend files (never the backend folder or its .env/db)
 const SITE_ROOT = path.join(__dirname, '..');
@@ -177,9 +210,9 @@ const ADVANCE_PER_SLOT = 100;
 const VALID_SPORTS = ['football', 'cricket'];
 const VALID_FORMATS = ['5s', '6s'];
 
-// Only verified payments block a slot. A booking that was created but never paid
-// for must NOT hold a slot hostage, so availability counts only these statuses.
-const CONFIRMED_STATUSES = ['advance-paid', 'completed'];
+// NOTE: only verified payments block a slot. A booking that was created but
+// never paid for must NOT hold a slot hostage, so availability counts only
+// 'advance-paid' and 'completed' (spelled inline in each query below).
 
 function getPriceForHour(hour) {
   if (hour >= 6 && hour < 14) return 500;
@@ -251,7 +284,7 @@ function requireHostAuth(req, res, next) {
 
   if (!token) return res.status(401).json({ error: 'No token provided' });
 
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+  jwt.verify(token, JWT_SIGNING_SECRET, (err, decoded) => {
     if (err) return res.status(403).json({ error: 'Invalid or expired token' });
     req.hostUser = decoded;
     next();
@@ -271,7 +304,7 @@ app.post('/api/host/login', loginLimiter, async (req, res) => {
   const validPassword = bcrypt.compareSync(password, user.passwordHash);
   if (!validPassword) return res.status(401).json({ error: 'Invalid username or password' });
 
-  const token = jwt.sign({ username: user.username }, JWT_SECRET, { expiresIn: '12h' });
+  const token = jwt.sign({ username: user.username }, JWT_SIGNING_SECRET, { expiresIn: '12h' });
   res.json({ token });
 });
 
@@ -365,16 +398,6 @@ app.post('/api/bookings', bookingLimiter, async (req, res) => {
   res.json({ success: true, bookingId: id, paymentMode: 'online', totalAmount, advanceAmount, balanceAmount, status });
 });
 
-// ================= PUBLIC: mark booking as paid (called after payment success) =================
-app.post('/api/bookings/:id/confirm-payment', async (req, res) => {
-  const { id } = req.params;
-  const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NULL', [id]);
-  if (!booking) return res.status(404).json({ error: 'Booking not found' });
-
-  await db.run(`UPDATE bookings SET status = 'advance-paid' WHERE id = ?`, [id]);
-  res.json({ success: true });
-});
-
 // ================= PUBLIC: get already-booked slots for a date (for frontend slot grid) =================
 // Both sports share the same play area, so booked slots are shared across sports.
 app.get('/api/bookings/slots', async (req, res) => {
@@ -405,7 +428,9 @@ app.get('/api/bookings/slots', async (req, res) => {
 });
 
 // ================= PUBLIC: look up bookings by phone number =================
-app.get('/api/bookings/lookup', async (req, res) => {
+// Rate limited: a bare phone number is the only credential, so without this the
+// whole booking history would be enumerable by guessing numbers.
+app.get('/api/bookings/lookup', lookupLimiter, async (req, res) => {
   const { phone } = req.query;
   if (!phone || !/^[0-9]{10}$/.test(phone)) {
     return res.status(400).json({ error: 'Valid 10-digit phone number required' });
@@ -708,12 +733,43 @@ app.patch('/api/host/bookings/:id/collect', requireHostAuth, async (req, res) =>
   res.json({ success: true });
 });
 
+// Verify an upload really is a JPEG/PNG/WEBP by inspecting its magic bytes.
+// Multer's fileFilter can only see the client-supplied Content-Type header,
+// which is trivially spoofed — a script could upload an arbitrary file.
+function sniffImageType(filePath) {
+  let fd;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(12);
+    fs.readSync(fd, buf, 0, 12, 0);
+    if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'jpeg';
+    if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))) return 'png';
+    if (buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') return 'webp';
+    return null;
+  } catch (err) {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 // ================= HOST-ONLY: upload a news/poster post =================
 app.post('/api/host/news', requireHostAuth, upload.single('image'), async (req, res) => {
   const { title, description } = req.body;
   if (!title) return res.status(400).json({ error: 'Title is required' });
 
-  const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+  // Reject anything that is not genuinely an image, then delete the bad upload
+  // so it never sits in the public /uploads folder.
+  let imagePath = null;
+  if (req.file) {
+    const realType = sniffImageType(req.file.path);
+    if (!realType) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ error: 'File is not a valid JPG, PNG, or WEBP image.' });
+    }
+    imagePath = `/uploads/${req.file.filename}`;
+  }
+
   const createdAt = new Date().toISOString();
 
   const result = await db.run(
@@ -740,6 +796,7 @@ app.delete('/api/host/news/:id', requireHostAuth, async (req, res) => {
 app.post('/api/payment/create-order', paymentLimiter, async (req, res) => {
   const { bookingId, amount } = req.body;
   if (!bookingId) return res.status(400).json({ error: 'bookingId is required' });
+  if (!razorpay) return res.status(503).json({ error: 'Payments are not configured on this server' });
 
   const booking = await db.get('SELECT * FROM bookings WHERE id = ? AND deletedAt IS NULL', [bookingId]);
   if (!booking) return res.status(404).json({ error: 'Booking not found' });
@@ -767,7 +824,7 @@ app.post('/api/payment/create-order', paymentLimiter, async (req, res) => {
       currency: 'INR',
       receipt: 'receipt_' + booking.id
     });
-    res.json({ orderId: order.id, amount: order.amount, currency: order.currency, keyId: process.env.RAZORPAY_KEY_ID });
+    res.json({ orderId: order.id, amount: order.amount, currency: order.currency, keyId: RP_KEY });
   } catch (err) {
     res.status(500).json({ error: 'Could not create payment order' });
   }
@@ -777,6 +834,10 @@ app.post('/api/payment/create-order', paymentLimiter, async (req, res) => {
 // Refunds a payment that was captured for a booking that ended up cancelled.
 // Never throws into the request path — failures are just logged.
 async function refundPayment(bookingId, paymentId, note) {
+  if (!razorpay) {
+    console.error(`⚠️ Cannot refund ${bookingId}: Razorpay is not configured.`);
+    return false;
+  }
   try {
     const refund = await razorpay.payments.refund(paymentId, { notes: { bookingId, reason: note } });
     await db.run(`UPDATE bookings SET refundStatus = ? WHERE id = ?`, ['refunded', bookingId]);
@@ -792,13 +853,23 @@ async function refundPayment(bookingId, paymentId, note) {
 app.post('/api/payment/verify', async (req, res) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature, bookingId } = req.body;
 
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !bookingId) {
+    return res.status(400).json({ success: false, error: 'Missing payment verification details' });
+  }
+  if (!RP_SECRET) {
+    return res.status(503).json({ success: false, error: 'Payments are not configured on this server' });
+  }
+
   const body = razorpay_order_id + '|' + razorpay_payment_id;
   const expectedSignature = crypto
-    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .createHmac('sha256', RP_SECRET)
     .update(body.toString())
     .digest('hex');
 
-  const isValid = expectedSignature === razorpay_signature;
+  // Constant-time compare so the signature cannot be recovered byte by byte.
+  const given = Buffer.from(String(razorpay_signature), 'utf8');
+  const expected = Buffer.from(expectedSignature, 'utf8');
+  const isValid = given.length === expected.length && crypto.timingSafeEqual(given, expected);
 
   if (!isValid) {
     return res.status(400).json({ success: false, error: 'Payment verification failed' });
@@ -876,6 +947,23 @@ app.post('/api/host/reset-data', requireHostAuth, async (req, res) => {
   await db.run('DELETE FROM bookings');
 
   res.json({ success: true, message: 'All bookings and revenue data have been reset.' });
+});
+
+// ================= Global error handler =================
+// Must be registered last, after every route. Without it an unhandled rejection
+// (e.g. a Postgres outage) makes Express return an HTML stack trace page, which
+// leaks internals and breaks the frontend's res.json() parsing.
+app.use((err, req, res, next) => {
+  // Multer errors (file too large, wrong type) arrive here and must stay JSON.
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: 'Image is too large. Maximum size is 5MB.' });
+  }
+  if (err && err.name === 'MulterError') {
+    return res.status(400).json({ error: 'Upload failed: ' + err.message });
+  }
+  if (res.headersSent) return next(err);
+  console.error('❌ Unhandled error:', err && err.stack ? err.stack : err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // Automatically cancel bookings whose advance was never paid (e.g. the customer

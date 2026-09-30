@@ -3,9 +3,6 @@ node_modules
 backend/node_modules
 backend/.env
 .env
-backend/turf.db
-backend/turf.db-shm
-backend/turf.db-wal
 backend/uploads
 .git
 .gitignore

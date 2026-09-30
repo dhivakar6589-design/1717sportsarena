@@ -14,7 +14,8 @@ primary_region = "bom" # Mumbai — change to your closest region (e.g. "maa", "
 [experimental]
   auto_rollback = true
 
-# Persistent volume so the SQLite DB and uploads survive redeploys.
+# Persistent volume so uploaded news images survive redeploys. (Bookings live in
+# PostgreSQL via DATABASE_URL, not on this volume.)
 # Create it once with: fly volumes create data --region bom --size 1
 [[mounts]]
   source = "data"

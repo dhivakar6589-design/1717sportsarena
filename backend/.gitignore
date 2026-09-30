@@ -1,7 +1,4 @@
 node_modules
 uploads/*
 !uploads/.gitkeep
-turf.db
-turf.db-shm
-turf.db-wal
 backups/

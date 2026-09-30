@@ -24,6 +24,17 @@ function formatDateISO(d) {
   return `${y}-${m}-${day}`;
 }
 
+// Escape a value before injecting it into innerHTML. Booking rows come from the
+// database, so anything customer-supplied must pass through this first.
+function escapeHTML(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const dateStrip = document.getElementById('dateStrip');
   const slotGrid = document.getElementById('slotGrid');
@@ -325,10 +336,10 @@ function showConfirmation(details) {
   const el = document.getElementById('bookingConfirm');
   el.innerHTML = `
     <h3>Booking Confirmed</h3>
-    <div class="confirm-row"><span>Booking ID</span><span>${details.bookingId}</span></div>
-    <div class="confirm-row"><span>Date</span><span>${details.date}</span></div>
-    <div class="confirm-row"><span>Sport</span><span>${details.sport.toUpperCase()} (${details.format})</span></div>
-    <div class="confirm-row"><span>Slots</span><span>${details.slots.map(to12HourDisplay).join(', ')}</span></div>
+    <div class="confirm-row"><span>Booking ID</span><span>${escapeHTML(details.bookingId)}</span></div>
+    <div class="confirm-row"><span>Date</span><span>${escapeHTML(details.date)}</span></div>
+    <div class="confirm-row"><span>Sport</span><span>${escapeHTML(details.sport.toUpperCase())} (${escapeHTML(details.format)})</span></div>
+    <div class="confirm-row"><span>Slots</span><span>${escapeHTML(details.slots.map(to12HourDisplay).join(', '))}</span></div>
     <div class="confirm-row"><span>Payment Mode</span><span>Online (Advance Paid)</span></div>
     <div class="confirm-row"><span>Advance Paid</span><span>₹${details.advanceAmount}</span></div>
     <div class="confirm-row"><span>Balance at Turf</span><span>₹${details.balanceAmount}</span></div>
@@ -372,15 +383,15 @@ document.addEventListener('DOMContentLoaded', () => {
         card.className = 'my-booking-card ' + statusClass;
         card.innerHTML = `
           <div class="mb-top">
-            <span class="mb-id">${b.id}</span>
-            <span class="mb-status">${statusLabel}</span>
+            <span class="mb-id">${escapeHTML(b.id)}</span>
+            <span class="mb-status">${escapeHTML(statusLabel)}</span>
           </div>
-          <div class="mb-slots">${b.slots.map(to12HourDisplay).join(', ')}</div>
+          <div class="mb-slots">${escapeHTML(b.slots.map(to12HourDisplay).join(', '))}</div>
           <div class="mb-top">
-            <span class="mb-date">${b.date} • ${b.sport.toUpperCase()} (${b.format}) • ${b.paymentMode === 'cash' ? '💵 Cash at turf' : '💳 Online'}</span>
+            <span class="mb-date">${escapeHTML(b.date)} • ${escapeHTML(b.sport.toUpperCase())} (${escapeHTML(b.format)}) • ${b.paymentMode === 'cash' ? '💵 Cash at turf' : '💳 Online'}</span>
             <span class="mb-date">${b.paymentMode === 'cash' ? `₹${b.balanceAmount} due at turf` : `₹${b.advanceAmount} paid`}</span>
           </div>
-          ${cancellable ? `<div style="margin-top:12px;"><button class="btn-cancel-booking" onclick="cancelMyBooking('${b.id}')">Cancel this booking</button></div>` : ''}
+          ${cancellable ? `<div style="margin-top:12px;"><button class="btn-cancel-booking" onclick="cancelMyBooking('${escapeHTML(b.id)}')">Cancel this booking</button></div>` : ''}
         `;
         myBookingsList.appendChild(card);
       });

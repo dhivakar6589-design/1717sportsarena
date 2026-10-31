@@ -1,0 +1,393 @@
+/* ============================================================
+   1717 Sports Arena — 3D depth layer
+   Loaded after style.css. Colour, type and rhythm still come from
+   the design system in style.css; this file only adds Z.
+   CSS perspective + preserve-3d, driven by custom properties
+   (--px --py --sy --nx --ny --bx --by --gx --gy --rx --ry)
+   that js/depth.js writes. No libraries, no canvas.
+
+   Note on perspective placement: it is never set on html, body or
+   .hero. A 3D transform on those elements would make them the
+   containing block for position:fixed / sticky descendants, which
+   breaks the navbar, the lightbox and the toast stack. Perspective
+   is scoped to each component instead, and depth never depends on
+   JS — the vars just fall back to 0.
+   ============================================================ */
+
+/* ---------- 1. Depth tokens ---------- */
+:root {
+  /* how far a layer sits toward the viewer */
+  --z-far:    8px;
+  --z-mid:    22px;
+  --z-near:   46px;
+  --z-hero:   70px;
+  /* camera distance for whole planes (tilted boards) */
+  --cam-plane: 1700px;
+  /* camera distance for a single card's inner facets */
+  --cam-facet: 900px;
+}
+
+/* ---------- 2. Motion handoff ---------- */
+/* The entrance animation in style.css drives `transform`, which the
+   tilt needs. Move the entrance onto the independent `translate`
+   property so both can own the same element. */
+@keyframes rise3d {
+  from { opacity: 0; translate: 0 18px; }
+  to   { opacity: 1; translate: 0 0; }
+}
+.js .reveal.is-in .stagger > *,
+.review-item,
+.my-booking-card { animation-name: rise3d; }
+
+/* ---------- 3. Page depth field ---------- */
+/* Two slow floodlight pools that drift behind the content, so the
+   gaps between sections read as air rather than flat ink. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -14%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(46vw 46vw at 14% 4%,  rgba(169, 214, 94, 0.07), transparent 62%),
+    radial-gradient(42vw 42vw at 88% 84%, rgba(169, 214, 94, 0.055), transparent 62%);
+  transform: translate3d(var(--bx, 0px), var(--by, 0px), 0);
+  will-change: transform;
+}
+
+/* ---------- 4. Hero: the pitch ---------- */
+/* The photo is panned on its own plane (no perspective ancestor, so
+   it slides flat rather than skewing), scaled to cover the drift. */
+.hero-media {
+  transform: translate3d(
+    var(--px, 0px),
+    calc(var(--py, 0px) + var(--sy, 0px)),
+    0
+  ) scale(1.18);
+  will-change: transform;
+}
+
+/* A ground plane laid down in the lower half of the hero. Mow
+   stripes run along the depth axis so perspective converges them at
+   the horizon; the floodlight pools and the hot horizon line sell
+   the light source.
+
+   Geometry: rotateX sends the near edge to d*sin(72deg) toward the
+   viewer, so the camera has to sit well clear of it or the near
+   edge projects to infinity. At perspective 150vh with a 105vh-deep
+   plane the near edge lands far past the fold, where overflow:hidden
+   on .hero clips it. */
+.hero-pitch {
+  position: absolute;
+  left: -60%;
+  right: -60%;
+  top: 38%;
+  height: 105vh;
+  z-index: -1;
+  pointer-events: none;
+  transform-origin: 50% 0%;
+  transform: perspective(150vh) rotateX(72deg);
+  opacity: 0.55;
+  mix-blend-mode: overlay;
+  background:
+    /* hot line along the horizon */
+    linear-gradient(180deg, rgba(169, 214, 94, 0.34), rgba(169, 214, 94, 0) 14%),
+    /* floodlight pools on the grass */
+    radial-gradient(38% 26% at 32% 34%, rgba(169, 214, 94, 0.30), transparent 72%),
+    radial-gradient(34% 24% at 70% 46%, rgba(169, 214, 94, 0.22), transparent 74%),
+    /* mow stripes */
+    repeating-linear-gradient(90deg,
+      rgba(0, 0, 0, 0.22) 0 108px,
+      rgba(255, 255, 255, 0.06) 108px 216px),
+    /* lines across the pitch, compressed by the perspective */
+    repeating-linear-gradient(0deg,
+      rgba(255, 255, 255, 0.10) 0 2px,
+      rgba(255, 255, 255, 0) 2px 76px),
+    /* falloff into the dark at the near edge */
+    linear-gradient(0deg, rgba(8, 10, 8, 0.92), rgba(8, 10, 8, 0) 62%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, rgba(0, 0, 0, 0.42) 16%, #000 52%);
+  mask-image: linear-gradient(180deg, transparent 0, rgba(0, 0, 0, 0.42) 16%, #000 52%);
+}
+
+/* Airborne dust in the floodlight, drifting slowly. */
+.hero-haze {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  background-image:
+    radial-gradient(1.6px 1.6px at 12% 24%, rgba(228, 242, 205, 0.55), transparent 60%),
+    radial-gradient(1.2px 1.2px at 27% 62%, rgba(228, 242, 205, 0.42), transparent 60%),
+    radial-gradient(1.8px 1.8px at 41% 18%, rgba(228, 242, 205, 0.34), transparent 60%),
+    radial-gradient(1.1px 1.1px at 58% 71%, rgba(228, 242, 205, 0.50), transparent 60%),
+    radial-gradient(1.5px 1.5px at 66% 33%, rgba(228, 242, 205, 0.30), transparent 60%),
+    radial-gradient(1.3px 1.3px at 79% 57%, rgba(228, 242, 205, 0.46), transparent 60%),
+    radial-gradient(1.7px 1.7px at 88% 26%, rgba(228, 242, 205, 0.28), transparent 60%),
+    radial-gradient(1.2px 1.2px at 34% 84%, rgba(228, 242, 205, 0.40), transparent 60%),
+    radial-gradient(1.4px 1.4px at 50% 47%, rgba(228, 242, 205, 0.26), transparent 60%),
+    radial-gradient(1.3px 1.3px at 71% 88%, rgba(228, 242, 205, 0.38), transparent 60%),
+    radial-gradient(1.5px 1.5px at 19% 51%, rgba(228, 242, 205, 0.32), transparent 60%),
+    radial-gradient(1.2px 1.2px at 94% 74%, rgba(228, 242, 205, 0.44), transparent 60%);
+  background-size: 1100px 760px;
+  animation: haze-drift 26s ease-in-out infinite alternate;
+}
+@keyframes haze-drift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-26px, -48px, 0); }
+}
+
+/* ---------- 5. Hero: content Z-stack ---------- */
+/* Each layer sits at its own depth. The shared --nx/--ny drift is
+   divided by the camera distance, so nearer layers travel further
+   than the facts slab on their own. */
+.hero-content {
+  perspective: var(--cam-plane);
+  perspective-origin: 30% 70%;
+}
+.hero-content > * {
+  transform: translate3d(var(--nx, 0px), var(--ny, 0px), var(--z, 0px));
+}
+.hero-kicker { --z: var(--z-hero); }
+.hero h1     { --z: 95px; }
+.hero .quote { --z: 80px; }
+.hero-sub    { --z: 62px; }
+.hero-actions{ --z: 88px; }
+/* the glass slab sits back against the pitch */
+.hero-facts {
+  --z: 44px;
+  transform: translate3d(
+    calc(var(--nx, 0px) * 0.5),
+    calc(var(--ny, 0px) * 0.5),
+    44px
+  );
+}
+
+/* the wordmark is extruded away from the top-left light source */
+.hero h1 {
+  text-shadow:
+    -1px -1px 0 rgba(255, 255, 255, 0.06),
+    0 2px 0 rgba(0, 0, 0, 0.38),
+    0 3px 0 rgba(0, 0, 0, 0.30),
+    0 4px 0 rgba(0, 0, 0, 0.23),
+    0 5px 0 rgba(0, 0, 0, 0.17),
+    0 6px 0 rgba(0, 0, 0, 0.11),
+    0 7px 0 rgba(0, 0, 0, 0.06),
+    0 18px 40px rgba(0, 0, 0, 0.65);
+}
+
+/* ---------- 6. Facilities: one tilted board ---------- */
+/* The bento draws its hairlines with a 1px grid gap, so per-card
+   rotation would tear the seams. Tilt the whole board instead and
+   give each card its own facets. */
+.card-grid {
+  transform:
+    perspective(var(--cam-plane))
+    rotateX(var(--gx, 0deg))
+    rotateY(var(--gy, 0deg));
+}
+.card {
+  perspective: var(--cam-facet);
+  perspective-origin: 50% 28%;
+}
+.card-icon,
+.card h3,
+.card p {
+  transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.card-icon { transform: translateZ(var(--z-near)); }
+.card h3    { transform: translateZ(var(--z-mid)); }
+.card p     { transform: translateZ(var(--z-far)); }
+
+.card:hover .card-icon { transform: translateZ(64px); }
+.card:hover h3         { transform: translateZ(30px); }
+
+/* specular sweep across the tile on hover */
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(115deg,
+    transparent 34%,
+    rgba(255, 255, 255, 0.055) 48%,
+    transparent 62%);
+  transition: opacity 0.45s ease;
+}
+.card:hover::after { opacity: 1; }
+
+/* ---------- 7. Rates: a tilted price board ---------- */
+/* No overflow clip here, so the tiles can genuinely lift off the
+   plane on hover. */
+.rates-grid {
+  transform-style: preserve-3d;
+  transform:
+    perspective(var(--cam-plane))
+    rotateX(var(--gx, 0deg))
+    rotateY(var(--gy, 0deg));
+}
+.rate {
+  perspective: var(--cam-facet);
+  perspective-origin: 50% 42%;
+  transition:
+    transform 0.45s cubic-bezier(0.2, 0.7, 0.3, 1),
+    background-color 0.3s ease;
+}
+.rate:hover          { transform: translateZ(26px); }
+.rate .rate-price    { transform: translateZ(34px); }
+.rate .rate-window   { transform: translateZ(18px); }
+
+/* ---------- 8. Details: tilted panels ---------- */
+.details-grid {
+  transform:
+    perspective(var(--cam-plane))
+    rotateX(var(--gx, 0deg))
+    rotateY(var(--gy, 0deg));
+}
+
+/* ---------- 9. Booking: the slot tiles ---------- */
+/* Kept shallow on purpose — this is the conversion path. */
+.slot-grid { perspective: 780px; }
+.slot-chip {
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.28s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.slot-chip:hover:not(.disabled) { transform: translateZ(15px); }
+.slot-chip.selected            { transform: translateZ(21px); }
+
+/* ---------- 10. Content cards tilt individually ---------- */
+/* Standalone cards with their own border, so rotation is safe. */
+.news-card,
+.review-item,
+.my-booking-card {
+  transform:
+    perspective(var(--cam-facet))
+    rotateX(var(--rx, 0deg))
+    rotateY(var(--ry, 0deg));
+}
+/* keep the border and shadow hovers from style.css in the list */
+.news-card {
+  transition:
+    transform 0.4s cubic-bezier(0.2, 0.7, 0.3, 1),
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+.review-item,
+.my-booking-card {
+  transition: transform 0.4s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.news-card:hover {
+  transform:
+    perspective(var(--cam-facet))
+    translate3d(0, -6px, 0)
+    rotateX(var(--rx, 0deg))
+    rotateY(var(--ry, 0deg));
+}
+/* stars lift off the review card face */
+.review-item  { perspective: var(--cam-facet); }
+.review-stars{ transform: translateZ(18px); }
+
+/* ---------- 11. Buttons: pressable ---------- */
+.btn-primary,
+.btn-secondary {
+  transform: perspective(520px) translate3d(0, 0, 0);
+}
+.btn-primary:hover,
+.btn-secondary:hover {
+  transform: perspective(520px) translate3d(0, -3px, 14px);
+}
+.btn-primary:active,
+.btn-secondary:active {
+  transform: perspective(520px) translate3d(0, 1px, -4px);
+}
+.btn-primary[disabled],
+.btn-secondary[disabled] { transform: none; }
+
+/* ---------- 12. Footer: the pitch again ---------- */
+/* Closes the page on the same plane the hero opens on. */
+.footer {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.footer::before {
+  content: '';
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  top: 0;
+  height: 60vh;
+  z-index: 0;
+  pointer-events: none;
+  transform-origin: 50% 0%;
+  transform: perspective(150vh) rotateX(74deg);
+  opacity: 0.4;
+  mix-blend-mode: screen;
+  background:
+    linear-gradient(180deg, rgba(169, 214, 94, 0.22), rgba(169, 214, 94, 0) 12%),
+    repeating-linear-gradient(90deg,
+      rgba(169, 214, 94, 0.08) 0 96px,
+      rgba(169, 214, 94, 0) 96px 192px),
+    repeating-linear-gradient(0deg,
+      rgba(169, 214, 94, 0.09) 0 2px,
+      rgba(169, 214, 94, 0) 2px 72px);
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 68%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 68%);
+}
+.footer .shell { position: relative; z-index: 1; }
+
+/* ---------- 13. Layer promotion while tilting ---------- */
+/* Only while a plane is actually moving, so idle pages stay cheap. */
+.is-tilting { will-change: transform; }
+
+/* ---------- 14. Capability guards ---------- */
+/* Touch and narrow viewports keep the static depth but lose the
+   pointer tilt, and :hover cannot get stuck under a finger. */
+@media (hover: none), (max-width: 900px) {
+  .card-grid,
+  .rates-grid,
+  .details-grid,
+  .news-card,
+  .news-card:hover,
+  .review-item,
+  .my-booking-card { transform: none; }
+  .rate:hover { transform: none; }
+  .slot-chip:hover:not(.disabled):not(.selected) { transform: none; }
+  .hero-content > * { transform: translateZ(var(--z, 0px)); }
+  .hero-facts { transform: translateZ(44px); }
+}
+
+/* Reduced motion drops everything that travels: pointer tilt, parallax
+   and the drifting haze. Static facets, extrusions and the pitch planes
+   stay, since none of them animate on their own. style.css already
+   collapses every transition duration here, so hover depth changes
+   land instantly rather than animating. */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  .hero-media,
+  .hero-content > *,
+  .hero-facts { transform: none; }
+  .hero-haze { animation: none; }
+  .card-grid,
+  .rates-grid,
+  .details-grid,
+  .news-card,
+  .news-card:hover,
+  .review-item,
+  .my-booking-card { transform: none; }
+  .btn-primary,
+  .btn-secondary,
+  .btn-primary:hover,
+  .btn-secondary:hover,
+  .btn-primary:active,
+  .btn-secondary:active { transform: none; }
+}
+
+@media print {
+  .hero-pitch, .hero-haze { display: none; }
+}

@@ -4,71 +4,146 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Host Dashboard | 1717 Sports Arena</title>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <link rel="icon" type="image/png" href="images/logo.png">
 <style>
-  body { padding: 30px 4%; }
-  .dash-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; }
-  .logout-btn { background:transparent; border:2px solid #ff5c5c; color:#ff5c5c; padding:8px 18px; border-radius:30px; cursor:pointer; font-weight:600; }
-  .logout-btn:hover { background:#ff5c5c; color:#fff; }
+  /* Host dashboard — scoped layer on top of css/style.css */
+  body { padding: clamp(1.25rem, 3vw, 2.5rem) var(--gutter); background: var(--ink-2); }
+  body > .dash-header, body > .booking-form, body > .summary-grid, body > .table-wrap { max-width: 1180px; margin-inline: auto; }
+
+  .dash-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 2rem;
+  }
+  .dash-header h1, .dash-header h2 {
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .dash-header .dash-sub { font-size: 0.8125rem; color: var(--text-3); margin-top: 0.25rem; }
+
+  .logout-btn {
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--text-2);
+    padding: 0.5rem 1rem;
+    border-radius: var(--r-pill);
+    cursor: pointer;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+  }
+  .logout-btn:hover { border-color: var(--text-2); color: var(--text); }
+  .logout-btn.is-danger:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-wash); }
 
   .summary-grid {
-    display:grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap:20px;
-    margin: 30px 0 40px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    margin: 0 0 2.5rem;
   }
-  .summary-card {
-    background: var(--mid-green);
-    border: 1px solid rgba(46,204,64,0.3);
-    border-radius: 14px;
-    padding: 22px;
-    text-align:center;
+  .summary-card { background: var(--surface); padding: 1.5rem; }
+  .summary-card h3 {
+    font-family: var(--font-body);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 0.625rem;
   }
-  .summary-card h3 { font-size:14px; color: var(--gray); text-transform:uppercase; margin-bottom:8px; }
-  .summary-card .value { font-size:30px; font-weight:700; color: var(--accent-green); font-family:'Oswald',sans-serif; }
-  .summary-card.revenue .value { color: var(--gold); }
+  .summary-card .value {
+    font-family: var(--font-display);
+    font-size: clamp(1.5rem, 3vw, 1.875rem);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .summary-card.revenue .value { color: var(--accent); }
 
-  table { width: 100%; border-collapse: collapse; margin-top: 15px; background: var(--mid-green); border-radius: 10px; overflow: hidden; }
-  th, td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); font-size:14px; }
-  th { background: rgba(0,0,0,0.3); color: var(--accent-green); }
-  .status-pending { color: var(--gold); }
-  .status-confirmed { color: var(--accent-green); }
-  .status-cancelled { color: #ff5c5c; }
-  button.action { margin-right: 6px; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size:12px; }
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    overflow-x: auto;
+    margin-bottom: 2.5rem;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    padding: 0.8125rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+  th {
+    background: var(--ink-2);
+    color: var(--text-3);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: var(--surface-2); }
+  td { color: var(--text-2); font-variant-numeric: tabular-nums; }
+  td:first-child { color: var(--text); font-weight: 600; }
+
+  .status-pending { color: var(--champagne); font-weight: 700; }
+  .status-confirmed { color: var(--accent); font-weight: 700; }
+  .status-cancelled { color: var(--danger); font-weight: 700; }
+  button.action { margin-right: 6px; padding: 0.375rem 0.625rem; border-radius: var(--r-xs); border: 1px solid var(--line-strong); background: transparent; color: var(--text-2); cursor: pointer; font-size: 0.6875rem; font-weight: 700; transition: border-color 0.2s ease, color 0.2s ease; }
+  button.action:hover { border-color: var(--accent); color: var(--accent); }
 
   .btn-cancel {
     background: transparent;
-    border: 1px solid #ff5c5c;
-    color: #ff5c5c;
+    border: 1px solid rgba(239, 107, 107, 0.4);
+    color: var(--danger);
     padding: 6px 12px;
-    border-radius: 6px;
+    border-radius: var(--r-xs);
     cursor: pointer;
     font-size: 12px;
+    font-weight: 700;
   }
-  .btn-cancel:hover { background: #ff5c5c; color: #fff; }
+  .btn-cancel:hover { background: var(--danger); color: #fff; }
 
   #loginBox {
-    max-width: 400px;
-    margin: 100px auto;
-    text-align: center;
-    background: var(--mid-green);
-    padding: 40px 30px;
-    border-radius: 16px;
-    border: 1px solid rgba(46,204,64,0.3);
+    max-width: 380px;
+    margin: clamp(3rem, 14vh, 8rem) auto;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    padding: 2.5rem;
+    box-shadow: var(--shadow-lg);
   }
+  #loginBox h2 { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.035em; }
   #loginBox input {
     width: 100%;
-    padding: 12px;
-    margin: 10px 0;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.2);
-    background: rgba(255,255,255,0.08);
-    color: #fff;
+    padding: 0.8125rem 1rem;
+    margin-top: 0.875rem;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line);
+    background: var(--ink-2);
+    color: var(--text);
   }
-  #loginBox .pass-wrap { position: relative; margin: 10px 0; }
-  #loginBox .pass-wrap input { width: 100%; margin: 0; padding-right: 44px; box-sizing: border-box; }
+  #loginBox .pass-wrap { position: relative; margin-top: 0.875rem; }
+  #loginBox .pass-wrap input { margin-top: 0; padding-right: 3rem; }
   #loginBox .pass-toggle {
     position: absolute;
     right: 6px;
@@ -78,61 +153,68 @@
     border: none;
     cursor: pointer;
     font-size: 16px;
-    opacity: 0.6;
+    color: var(--text-3);
     padding: 6px;
   }
-  #loginBox .pass-toggle:hover { opacity: 1; }
-  .table-wrap { overflow-x:auto; }
+  #loginBox .pass-toggle:hover { color: var(--accent); }
+
+  .mini-stars { color: var(--champagne); letter-spacing: 0.1em; font-size: 0.8125rem; }
 
   .reset-modal-overlay {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.75);
-    z-index: 999;
+    z-index: var(--z-overlay);
+    background: rgba(4, 6, 4, 0.86);
+    backdrop-filter: blur(6px);
     justify-content: center;
     align-items: center;
+    padding: 1.25rem;
   }
-  .reset-modal-overlay.active { display: flex; }
+  .reset-modal-overlay.active { display: flex; animation: fade 0.2s ease both; }
   .reset-modal {
-    background: var(--mid-green);
-    border: 1px solid rgba(255,92,92,0.4);
-    border-radius: 16px;
-    padding: 30px;
+    background: var(--surface);
+    border: 1px solid rgba(239, 107, 107, 0.35);
+    border-radius: var(--r-lg);
+    padding: 2rem;
     max-width: 420px;
-    width: 90%;
+    width: 100%;
   }
   .reset-modal input {
     width: 100%;
-    padding: 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.2);
-    background: rgba(255,255,255,0.08);
-    color: #fff;
+    padding: 0.8125rem 1rem;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line);
+    background: var(--ink-2);
+    color: var(--text);
   }
+  .reset-modal .btn-secondary, .reset-modal .btn-primary { width: 100%; }
 </style>
 </head>
 <body>
 
 <div id="loginBox">
-  <h2 style="color:var(--accent-green)">Host Login</h2>
-  <p style="color:var(--gray); margin-bottom:10px;">1717 Sports Arena Admin Panel</p>
-  <input type="text" id="hostUser" placeholder="Username" autocomplete="off">
+  <h2>Host Login</h2>
+  <p style="color:var(--text-3); margin-bottom:0.5rem;">1717 Sports Arena admin panel</p>
+  <input type="text" id="hostUser" placeholder="Username" autocomplete="off" aria-label="Username">
   <div class="pass-wrap">
-    <input type="password" id="hostPass" placeholder="Password">
-    <button type="button" class="pass-toggle" onclick="togglePass()" aria-label="Show password">👁</button>
+    <input type="password" id="hostPass" placeholder="Password" aria-label="Password">
+    <button type="button" class="pass-toggle" onclick="togglePass()" aria-label="Show password">&#9673;</button>
   </div>
-  <button class="btn-primary" style="width:100%; margin-top:10px;" onclick="checkLogin()">Login</button>
-  <p id="loginError" style="color:#ff5c5c; margin-top:10px; min-height:20px;"></p>
+  <button class="btn-primary" style="width:100%; margin-top:14px;" onclick="checkLogin()">Login</button>
+  <p id="loginError" style="color:var(--danger); margin-top:10px; min-height:20px; font-size:.875rem; font-weight:600;"></p>
 </div>
 
 <div id="dashboard" style="display:none;">
   <div class="dash-header">
-    <h1 style="color:var(--accent-green)">1717 Sports Arena — Host Dashboard</h1>
-    <div style="display:flex; gap:10px;">
-      <button class="logout-btn" style="border-color: var(--gold); color: var(--gold);" onclick="openChangePasswordModal()">Change Password</button>
-      <button class="logout-btn" style="border-color: var(--gold); color: var(--gold);" onclick="openResetModal()">Reset Data</button>
-      <button class="logout-btn" onclick="logout()">Logout</button>
+    <div>
+      <h1>1717 Sports Arena</h1>
+      <p class="dash-sub">Host dashboard — slots, bookings, revenue and news</p>
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button class="logout-btn" onclick="openChangePasswordModal()">Change Password</button>
+      <button class="logout-btn" onclick="openResetModal()">Reset Data</button>
+      <button class="logout-btn is-danger" onclick="logout()">Logout</button>
     </div>
   </div>
 
@@ -181,7 +263,7 @@
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
       <button class="btn-secondary" style="padding:10px 22px;" id="hostBlockWholeDayBtn" onclick="hostBlockWholeDay()">Block Whole Day</button>
       <button class="btn-secondary" style="padding:10px 22px;" id="hostClearAllBtn" onclick="hostClearAll()">Clear All</button>
-      <button class="btn-primary" style="padding:10px 22px; background:var(--gold); border:none;" id="hostSaveBtn" onclick="hostSave()">Save Blocks</button>
+      <button class="btn-primary" style="padding:10px 22px;" id="hostSaveBtn" onclick="hostSave()">Save Blocks</button>
     </div>
   </div>
 
@@ -320,17 +402,17 @@
 
 <div id="resetModalOverlay" class="reset-modal-overlay">
   <div class="reset-modal">
-    <h2 style="color:#ff5c5c; font-size:20px;">⚠️ Reset All Bookings & Revenue</h2>
+    <h2 style="color:#ef6b6b; font-size:20px;">Reset All Bookings & Revenue</h2>
     <p style="color:var(--gray-light); font-size:14px; margin:15px 0;">
       This will permanently delete <strong>all bookings, slot history, and revenue data</strong>.
       Reviews and tournament posts will NOT be affected. This action cannot be undone.
     </p>
     <label style="font-size:13px; color:var(--gray);">Re-enter your host password to confirm</label>
     <input type="password" id="resetConfirmPassword" placeholder="Password" style="margin-top:6px;">
-    <p id="resetError" style="color:#ff5c5c; font-size:13px; min-height:18px; margin-top:8px;"></p>
+    <p id="resetError" style="color:#ef6b6b; font-size:13px; min-height:18px; margin-top:8px;"></p>
     <div style="display:flex; gap:10px; margin-top:15px;">
       <button class="btn-secondary" style="flex:1;" onclick="closeResetModal()">Cancel</button>
-      <button class="btn-cancel" style="flex:1; border-color:#ff5c5c;" onclick="submitReset()">Yes, Reset Everything</button>
+      <button class="btn-cancel" style="flex:1; border-color:#ef6b6b;" onclick="submitReset()">Yes, Reset Everything</button>
     </div>
   </div>
 </div>
@@ -344,7 +426,7 @@
     <input type="password" id="currentPassword" placeholder="Current password" style="margin-top:6px;">
     <input type="password" id="newPassword" placeholder="New password" style="margin-top:10px;">
     <input type="password" id="confirmNewPassword" placeholder="Confirm new password" style="margin-top:10px;">
-    <p id="changePasswordError" style="color:#ff5c5c; font-size:13px; min-height:18px; margin-top:8px;"></p>
+    <p id="changePasswordError" style="color:#ef6b6b; font-size:13px; min-height:18px; margin-top:8px;"></p>
     <div style="display:flex; gap:10px; margin-top:15px;">
       <button class="btn-secondary" style="flex:1;" onclick="closeChangePasswordModal()">Cancel</button>
       <button class="btn-primary" style="flex:1;" onclick="submitChangePassword()">Change Password</button>
@@ -361,11 +443,11 @@ function togglePass() {
   const btn = document.querySelector('#loginBox .pass-toggle');
   if (pass.type === 'password') {
     pass.type = 'text';
-    btn.textContent = '🙈';
+    btn.textContent = '◉';
     btn.setAttribute('aria-label', 'Hide password');
   } else {
     pass.type = 'password';
-    btn.textContent = '👁';
+    btn.textContent = '○';
     btn.setAttribute('aria-label', 'Show password');
   }
 }
@@ -643,7 +725,7 @@ async function loadData() {
       <td class="status-${balanceClass}">${escapeHTML(b.balanceStatus)}</td>
       <td>
         ${b.status === 'advance-paid' ? `<button class="action btn-cancel" onclick="confirmCancel('${escapeHTML(b.id)}')">Cancel Slot</button>` : ''}
-        ${b.status === 'cancelled' ? `<button class="action btn-secondary" style="border-color:#2ecc40; color:#2ecc40;" onclick="confirmRestore('${escapeHTML(b.id)}')">Restore Slot</button>` : ''}
+        ${b.status === 'cancelled' ? `<button class="action btn-secondary" style="border-color:#a9d65e; color:#a9d65e;" onclick="confirmRestore('${escapeHTML(b.id)}')">Restore Slot</button>` : ''}
         ${canCollectBalance(b) ? `<button class="action btn-secondary" onclick="saveCollection('${escapeHTML(b.id)}')">Save Collection</button>` : ''}
       </td>
     `;
@@ -657,7 +739,7 @@ async function loadData() {
     rtbody.innerHTML = '';
     reviews.forEach(r => {
       const row = document.createElement('tr');
-      row.innerHTML = `<td>${escapeHTML(r.name)}</td><td>${'⭐'.repeat(Number(r.rating) || 0)}</td><td>${escapeHTML(r.text)}</td>`;
+      row.innerHTML = `<td>${escapeHTML(r.name)}</td><td><span class="mini-stars" aria-label="${Number(r.rating) || 0} out of 5">${'★'.repeat(Number(r.rating) || 0)}</span></td><td>${escapeHTML(r.text)}</td>`;
       rtbody.appendChild(row);
     });
   } catch (err) {}
@@ -689,7 +771,7 @@ async function restoreBooking(id) {
       alert(data.error || 'Could not restore the booking.');
       return;
     }
-    alert(`✅ Booking ${id} restored. Its slot is confirmed again.`);
+    alert(`Booking ${id} restored. Its slot is confirmed again.`);
     loadData();
   } catch (err) {}
 }
@@ -789,7 +871,7 @@ async function renderHostGrid() {
     blockedSlots = data.blockedSlots || [];
     pastSlots = data.pastSlots || [];
   } catch (err) {
-    grid.innerHTML = '<p style="color:#ff5c5c; font-size:13px;">Could not load availability.</p>';
+    grid.innerHTML = '<p style="color:#ef6b6b; font-size:13px;">Could not load availability.</p>';
     return;
   }
 
@@ -876,7 +958,7 @@ async function saveHostBlocks() {
   const msg = document.getElementById('hostMsg');
   const date = document.getElementById('hostDate').value;
   if (!date) {
-    msg.style.color = '#ff5c5c';
+    msg.style.color = '#ef6b6b';
     msg.textContent = 'Pick a date first.';
     return;
   }
@@ -890,19 +972,19 @@ async function saveHostBlocks() {
     });
     const data = await res.json();
     if (!res.ok) {
-      msg.style.color = '#ff5c5c';
+      msg.style.color = '#ef6b6b';
       msg.textContent = data.error || 'Could not save blocks.';
       return;
     }
-    msg.style.color = '#2ecc40';
+    msg.style.color = '#a9d65e';
     msg.textContent = hostSelectedSlots.length === 0
-      ? `✅ ${date} is now fully open for booking.`
-      : `✅ ${hostSelectedSlots.length} slot(s) blocked on ${date}.`;
+      ? `${date} is now fully open for booking.`
+      : `${hostSelectedSlots.length} slot(s) blocked on ${date}.`;
     hostSelectedSlots = [];
     renderHostGrid();
     loadData();
   } catch (err) {
-    msg.style.color = '#ff5c5c';
+    msg.style.color = '#ef6b6b';
     msg.textContent = 'Could not connect to server.';
   }
 }
@@ -915,10 +997,10 @@ async function submitHostBooking() {
   const sport = document.querySelector('input[name="hostSport"]:checked').value;
   const format = document.querySelector('input[name="hostFormat"]:checked').value;
 
-  if (!name) { msg.style.color = '#ff5c5c'; msg.textContent = 'Enter customer name.'; return; }
-  if (!/^[0-9]{10}$/.test(phone)) { msg.style.color = '#ff5c5c'; msg.textContent = 'Enter a valid 10-digit phone number.'; return; }
-  if (!date) { msg.style.color = '#ff5c5c'; msg.textContent = 'Pick a date.'; return; }
-  if (hostSelectedSlots.length === 0) { msg.style.color = '#ff5c5c'; msg.textContent = 'Select at least one slot.'; return; }
+  if (!name) { msg.style.color = '#ef6b6b'; msg.textContent = 'Enter customer name.'; return; }
+  if (!/^[0-9]{10}$/.test(phone)) { msg.style.color = '#ef6b6b'; msg.textContent = 'Enter a valid 10-digit phone number.'; return; }
+  if (!date) { msg.style.color = '#ef6b6b'; msg.textContent = 'Pick a date.'; return; }
+  if (hostSelectedSlots.length === 0) { msg.style.color = '#ef6b6b'; msg.textContent = 'Select at least one slot.'; return; }
 
   msg.style.color = 'var(--gray-light)';
   msg.textContent = 'Creating booking...';
@@ -931,20 +1013,20 @@ async function submitHostBooking() {
     });
     const data = await res.json();
     if (!res.ok) {
-      msg.style.color = '#ff5c5c';
+      msg.style.color = '#ef6b6b';
       msg.textContent = data.error || 'Could not create booking.';
       renderHostGrid();
       return;
     }
-    msg.style.color = '#2ecc40';
-    msg.textContent = `✅ Booking created (${data.bookingId}). Slots are now blocked for others.`;
+    msg.style.color = '#a9d65e';
+    msg.textContent = `Booking created (${data.bookingId}). Slots are now blocked for others.`;
     document.getElementById('hostBookingName').value = '';
     document.getElementById('hostBookingPhone').value = '';
     hostSelectedSlots = [];
     renderHostGrid();
     loadData();
   } catch (err) {
-    msg.style.color = '#ff5c5c';
+    msg.style.color = '#ef6b6b';
     msg.textContent = 'Could not connect to server.';
   }
 }
@@ -995,16 +1077,16 @@ document.getElementById('newsForm').addEventListener('submit', async (e) => {
     });
     const data = await res.json();
     if (res.ok) {
-      newsMsg.style.color = '#2ecc40';
+      newsMsg.style.color = '#a9d65e';
       newsMsg.textContent = 'Posted successfully!';
       document.getElementById('newsForm').reset();
       loadNews();
     } else {
-      newsMsg.style.color = '#ff5c5c';
+      newsMsg.style.color = '#ef6b6b';
       newsMsg.textContent = data.error || 'Failed to post.';
     }
   } catch (err) {
-    newsMsg.style.color = '#ff5c5c';
+    newsMsg.style.color = '#ef6b6b';
     newsMsg.textContent = 'Could not connect to server.';
   }
 });
@@ -1071,7 +1153,7 @@ async function submitReset() {
     }
 
     closeResetModal();
-    alert('✅ All bookings and revenue have been reset.');
+    alert('All bookings and revenue have been reset.');
     loadData();
   } catch (err) {
     errorEl.textContent = 'Could not connect to server.';
@@ -1126,7 +1208,7 @@ async function submitChangePassword() {
     }
 
     closeChangePasswordModal();
-    alert('✅ Password changed successfully. Please log in again with your new password.');
+    alert('Password changed successfully. Please log in again with your new password.');
     logout();
   } catch (err) {
     errorEl.textContent = 'Could not connect to server.';

@@ -44,6 +44,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const balanceAmt = document.getElementById('balanceAmt');
   const bookingForm = document.getElementById('bookingForm');
   const msg = document.getElementById('bookingMsg');
+  const slotHint = document.getElementById('slotHint');
+  const nameInput = document.getElementById('name');
+  const phoneInput = document.getElementById('phone');
+  const payBtn = document.getElementById('payBtn');
+  const payBtnLabel = payBtn ? payBtn.querySelector('span') : null;
+  const advanceRow = document.getElementById('advanceRow');
 
   const ADVANCE_PER_SLOT = 100;
 
@@ -62,12 +68,33 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function getSelectedFormat() {
-    return document.querySelector('input[name="format"]:checked').value;
+    const checked = document.querySelector('input[name="format"]:checked');
+    return checked ? checked.value : '';
+  }
+
+  // Status line under the submit button. Replaces colour-coded <p> text.
+  function setMessage(kind, text) {
+    if (!msg) return;
+    msg.textContent = text || '';
+    msg.classList.remove('is-error', 'is-pending', 'is-success');
+    if (kind) msg.classList.add(`is-${kind}`);
+  }
+
+  function setFieldError(input, invalid) {
+    if (!input) return;
+    if (invalid) input.setAttribute('aria-invalid', 'true');
+    else input.removeAttribute('aria-invalid');
+  }
+
+  function skeletonSlots(count) {
+    return Array.from({ length: count }, () =>
+      '<div class="skeleton skeleton-line" style="height:3.25rem;margin-bottom:0" aria-hidden="true"></div>'
+    ).join('');
   }
 
   function buildDateStrip() {
     dateStrip.innerHTML = '';
-    const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const days = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date();
@@ -76,12 +103,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     days.forEach((d, i) => {
       const iso = formatDateISO(d);
-      const chip = document.createElement('div');
+      const chip = document.createElement('button');
+      chip.type = 'button';
       chip.className = 'date-chip' + (i === 0 ? ' selected' : '');
-      chip.innerHTML = `<div class="day-num">${d.getDate()}</div><div class="day-name">${dayNames[d.getDay()]}</div>`;
+      chip.setAttribute('role', 'radio');
+      chip.setAttribute('aria-checked', String(i === 0));
+      chip.setAttribute('aria-label', d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' }));
+      chip.innerHTML = `<span class="day-num">${d.getDate()}</span><span class="day-name">${dayNames[d.getDay()]}</span>`;
       chip.addEventListener('click', () => {
-        document.querySelectorAll('.date-chip').forEach(c => c.classList.remove('selected'));
+        dateStrip.querySelectorAll('.date-chip').forEach(c => {
+          c.classList.remove('selected');
+          c.setAttribute('aria-checked', 'false');
+        });
         chip.classList.add('selected');
+        chip.setAttribute('aria-checked', 'true');
         selectedDate = iso;
         generateSlotGrid();
       });
@@ -91,10 +126,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function generateSlotGrid() {
-    slotGrid.innerHTML = '<p style="color:var(--gray); font-size:13px;">Loading availability...</p>';
     selectedSlots = [];
     updatePriceSummary();
     if (!selectedDate) return;
+
+    slotGrid.innerHTML = skeletonSlots(16);
+    slotGrid.setAttribute('aria-busy', 'true');
 
     const sport = getSelectedSport();
     let bookedSlots = [];
@@ -103,12 +140,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       const res = await fetch(`${API_BASE}/bookings/slots?date=${selectedDate}&sport=${sport}`);
+      if (!res.ok) throw new Error('request failed');
       const data = await res.json();
       bookedSlots = data.bookedSlots || [];
       blockedSlots = data.blockedSlots || [];
       pastSlots = data.pastSlots || [];
     } catch (err) {
-      slotGrid.innerHTML = '<p style="color:#ff5c5c; font-size:13px;">Could not load slots. Is the server running?</p>';
+      slotGrid.removeAttribute('aria-busy');
+      slotGrid.innerHTML = '<p style="color:var(--danger);font-size:.875rem;">Could not load availability. Check your connection and try again.</p>';
       return;
     }
 
@@ -116,7 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const isToday = selectedDate === formatDateISO(now);
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
-    slotGrid.innerHTML = '';
+    const frag = document.createDocumentFragment();
     for (let h = 6; h < 22; h++) {
       const start = h.toString().padStart(2, '0') + ':00';
       const end = (h + 1).toString().padStart(2, '0') + ':00';
@@ -127,19 +166,36 @@ document.addEventListener('DOMContentLoaded', () => {
       const isPast = (isToday && h * 60 <= nowMinutes) || pastSlots.includes(label);
       const disabled = isBooked || isBlocked || isPast;
 
-      const chip = document.createElement('div');
-      chip.className = 'slot-chip' + (disabled ? ' disabled' : '');
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      let modifier = '';
+      if (isBooked) modifier = ' is-booked';
+      else if (isBlocked) modifier = ' is-blocked';
+      else if (isPast) modifier = ' is-past';
+
+      chip.className = 'slot-chip' + (disabled ? ' disabled' : '') + modifier;
       chip.dataset.label = label;
-      chip.innerHTML = `${to12HourLabel(h)}<br><small>₹${price}/hr</small>`;
-      if (isBlocked) chip.title = 'Unavailable — turf closed/blocked by host';
+      chip.innerHTML = `${to12HourLabel(h)}<small>&#8377;${price}/hr</small>`;
+
+      if (disabled) {
+        chip.disabled = true;
+        chip.setAttribute('aria-disabled', 'true');
+      } else {
+        chip.setAttribute('aria-pressed', 'false');
+      }
+
+      if (isBlocked) chip.title = 'Unavailable — the host has blocked this slot';
       else if (isPast) chip.title = 'This slot has already started';
       else if (isBooked) chip.title = 'Already booked';
+      else chip.title = `Select ${to12HourLabel(h)} for ₹${price}`;
 
       if (!disabled) {
         chip.addEventListener('click', () => {
           if (chip.classList.contains('disabled')) return;
           chip.classList.toggle('selected');
-          if (chip.classList.contains('selected')) {
+          const nowSelected = chip.classList.contains('selected');
+          chip.setAttribute('aria-pressed', String(nowSelected));
+          if (nowSelected) {
             selectedSlots.push({ label, price });
           } else {
             selectedSlots = selectedSlots.filter(s => s.label !== label);
@@ -147,32 +203,42 @@ document.addEventListener('DOMContentLoaded', () => {
           updatePriceSummary();
         });
       }
-      slotGrid.appendChild(chip);
+      frag.appendChild(chip);
     }
+
+    slotGrid.innerHTML = '';
+    slotGrid.appendChild(frag);
+    slotGrid.removeAttribute('aria-busy');
   }
 
   function updatePriceSummary() {
-    if (selectedSlots.length === 0) {
-      priceSummary.style.display = 'none';
-      return;
+    const empty = selectedSlots.length === 0;
+    priceSummary.style.display = empty ? 'none' : 'block';
+
+    if (payBtn) payBtn.disabled = empty;
+
+    if (slotHint) {
+      slotHint.textContent = empty
+        ? 'No slots selected yet.'
+        : `${selectedSlots.length} slot${selectedSlots.length > 1 ? 's' : ''} selected for ${selectedDate}.`;
     }
+
+    if (empty) return;
+
     const total = selectedSlots.reduce((sum, s) => sum + s.price, 0);
     const advance = Math.min(ADVANCE_PER_SLOT * selectedSlots.length, total);
     const balance = total - advance;
-    const payBtn = document.getElementById('payBtn');
-    const advanceRow = document.getElementById('advanceRow');
 
-    totalAmt.textContent = '₹' + total;
-    advanceAmt.textContent = '₹' + advance;
-    balanceAmt.textContent = '₹' + balance;
+    totalAmt.textContent = '₹' + total.toLocaleString('en-IN');
+    advanceAmt.textContent = '₹' + advance.toLocaleString('en-IN');
+    balanceAmt.textContent = '₹' + balance.toLocaleString('en-IN');
     if (advanceRow) advanceRow.style.display = 'flex';
-    if (payBtn) payBtn.textContent = `Pay ₹${advance} Advance & Book`;
-    priceSummary.style.display = 'block';
+    if (payBtnLabel) payBtnLabel.textContent = `Pay ₹${advance} advance & book`;
   }
 
   function toggleFormatGroup() {
     const formatGroup = document.getElementById('formatGroup');
-    if (formatGroup) formatGroup.style.display = getSelectedSport() === 'football' ? 'block' : 'none';
+    if (formatGroup) formatGroup.style.display = getSelectedSport() === 'football' ? 'flex' : 'none';
   }
 
   document.querySelectorAll('input[name="sport"]').forEach(radio => {
@@ -193,10 +259,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!m) return;
       const h = Number(m[1]);
       if (h * 60 <= nowMinutes) {
-        chip.classList.remove('selected');
-        chip.classList.add('disabled');
-        chip.title = 'This slot has already started';
         const label = chip.dataset.label;
+        chip.classList.remove('selected');
+        chip.classList.add('disabled', 'is-past');
+        chip.disabled = true;
+        chip.setAttribute('aria-disabled', 'true');
+        chip.title = 'This slot has already started';
         selectedSlots = selectedSlots.filter(s => s.label !== label);
         updatePriceSummary();
       }
@@ -207,22 +275,55 @@ document.addEventListener('DOMContentLoaded', () => {
   buildDateStrip();
   generateSlotGrid();
 
+  // Clear the error state as soon as the customer edits the offending field.
+  [nameInput, phoneInput].forEach(el => {
+    if (!el) return;
+    el.addEventListener('input', () => {
+      setFieldError(el, false);
+      if (msg && msg.classList.contains('is-error')) setMessage(null, '');
+    });
+  });
+
+  function setBusy(busy) {
+    if (!payBtn) return;
+    payBtn.classList.toggle('is-busy', busy);
+    payBtn.disabled = busy || selectedSlots.length === 0;
+  }
+
   bookingForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const name = document.getElementById('name').value.trim();
-    const phone = document.getElementById('phone').value.trim();
+    const name = nameInput.value.trim();
+    const phone = phoneInput.value.trim();
     const sport = getSelectedSport();
     const format = getSelectedFormat();
 
-    if (!name) { msg.style.color = '#ff5c5c'; msg.textContent = 'Please enter your name.'; return; }
-    if (!/^[0-9]{10}$/.test(phone)) { msg.style.color = '#ff5c5c'; msg.textContent = 'Please enter a valid 10-digit phone number.'; return; }
-    if (selectedSlots.length === 0) { msg.style.color = '#ff5c5c'; msg.textContent = 'Please select at least one time slot.'; return; }
+    if (!name) {
+      setFieldError(nameInput, true);
+      setMessage('error', 'Please enter your name.');
+      return;
+    }
+    if (!/^[0-9]{10}$/.test(phone)) {
+      setFieldError(phoneInput, true);
+      setMessage('error', 'Please enter a valid 10-digit phone number.');
+      return;
+    }
+    setFieldError(nameInput, false);
+    setFieldError(phoneInput, false);
+
+    if (selectedSlots.length === 0) {
+      setMessage('error', 'Please select at least one time slot.');
+      return;
+    }
 
     const slotsSorted = selectedSlots.map(s => s.label).sort();
 
-    msg.style.color = '#d4af37';
-    msg.textContent = 'Creating your booking...';
+    setBusy(true);
+    setMessage('pending', 'Creating your booking...');
+
+    let bookingId;
+    let advanceAmount;
+    let balanceAmount;
 
     try {
       const res = await fetch(`${API_BASE}/bookings`, {
@@ -236,97 +337,94 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
 
       if (!res.ok) {
-        msg.style.color = '#ff5c5c';
-        msg.textContent = data.error || 'Booking failed. Please try again.';
+        setMessage('error', data.error || 'Booking failed. Please try again.');
         generateSlotGrid();
         return;
       }
 
-      const bookingId = data.bookingId;
-      const { advanceAmount, balanceAmount } = data;
+      bookingId = data.bookingId;
+      advanceAmount = data.advanceAmount;
+      balanceAmount = data.balanceAmount;
 
-      // ---- Online payment: open the Razorpay advance checkout ----
-      msg.style.color = '#2ecc40';
-      msg.textContent = `Booking created (ID: ${bookingId}). Opening payment...`;
+      setMessage('pending', `Booking ${bookingId} created. Opening payment...`);
 
-      try {
-        const orderRes = await fetch(`${API_BASE}/payment/create-order`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ bookingId: bookingId, amount: advanceAmount })
-        });
-        const orderData = await orderRes.json();
+      const orderRes = await fetch(`${API_BASE}/payment/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId: bookingId, amount: advanceAmount })
+      });
+      const orderData = await orderRes.json();
 
-        if (!orderRes.ok) {
-          msg.style.color = '#ff5c5c';
-          msg.textContent = orderData.error || 'Could not start payment. Please try again.';
-          generateSlotGrid();
-          return;
-        }
+      if (!orderRes.ok) {
+        setMessage('error', orderData.error || 'Could not start payment. Please try again.');
+        generateSlotGrid();
+        return;
+      }
 
-        if (typeof Razorpay === 'undefined') {
-          msg.style.color = '#ff5c5c';
-          msg.textContent = 'Payment window could not load (Razorpay blocked). Your slot is NOT booked yet — please try again.';
-          return;
-        }
+      if (typeof Razorpay === 'undefined') {
+        setMessage('error', 'The payment window could not load. Your slot is NOT booked yet, please try again.');
+        return;
+      }
 
-        const options = {
-          key: orderData.keyId,
-          amount: orderData.amount,
-          currency: orderData.currency,
-          name: '1717 Sports Arena',
-          description: `Advance for ${sport.toUpperCase()} (${format}) - ${slotsSorted.map(to12HourDisplay).join(', ')}`,
-          order_id: orderData.orderId,
-          prefill: { name: name, contact: phone },
-          theme: { color: '#2ecc40' },
-          handler: async function (response) {
-            try {
-              const verifyRes = await fetch(`${API_BASE}/payment/verify`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  razorpay_order_id: response.razorpay_order_id,
-                  razorpay_payment_id: response.razorpay_payment_id,
-                  razorpay_signature: response.razorpay_signature,
-                  bookingId: bookingId
-                })
-              });
-              const verifyData = await verifyRes.json();
+      const options = {
+        key: orderData.keyId,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: '1717 Sports Arena',
+        description: `Advance for ${sport.toUpperCase()} (${format}) - ${slotsSorted.map(to12HourDisplay).join(', ')}`,
+        order_id: orderData.orderId,
+        prefill: { name: name, contact: phone },
+        theme: { color: '#a9d65e' },
+        handler: async function (response) {
+          try {
+            const verifyRes = await fetch(`${API_BASE}/payment/verify`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                bookingId: bookingId
+              })
+            });
+            const verifyData = await verifyRes.json();
 
-              if (verifyData.success) {
-                showConfirmation({ bookingId, name, phone, date: selectedDate, sport, format, slots: slotsSorted, advanceAmount, balanceAmount });
-                alert(`✅ Payment successful!\nAdvance of ₹${advanceAmount} received.\nYour slots are confirmed.\nPay ₹${balanceAmount} at the turf.`);
-              } else if (verifyData.conflict) {
-                alert(`⚠️ ${verifyData.error}`);
-              } else {
-                alert(`⚠️ Payment could not be verified: ${verifyData.error || 'unknown error'}. Your slot is NOT confirmed.`);
-              }
-            } catch (err) {
-              alert('⚠️ Could not reach the server to verify payment. Please contact the turf with your booking ID: ' + bookingId);
+            if (verifyData.success) {
+              showConfirmation({ bookingId, name, phone, date: selectedDate, sport, format, slots: slotsSorted, advanceAmount, balanceAmount });
+              setMessage('success', `Advance of ₹${advanceAmount} received. Your slots are confirmed.`);
+              showToast('success', 'Payment successful', `Advance of ₹${advanceAmount} received. Pay ₹${balanceAmount} at the turf.`);
+            } else if (verifyData.conflict) {
+              setMessage('error', verifyData.error || 'That slot was taken while you were paying.');
+              showToast('error', 'Slot no longer available', verifyData.error || 'Another booking took that slot.');
+            } else {
+              setMessage('error', 'Payment could not be verified. Your slot is NOT confirmed.');
+              showToast('error', 'Payment not verified', verifyData.error || 'Contact the arena with your booking ID.');
             }
+          } catch (err) {
+            setMessage('error', 'Could not reach the server to verify payment.');
+            showToast('error', 'Could not verify payment', 'Contact the arena with your booking ID: ' + bookingId);
+          }
+          bookingForm.reset();
+          buildDateStrip();
+          generateSlotGrid();
+        },
+        modal: {
+          ondismiss: function () {
+            setMessage('error', 'Payment window closed. No payment was received and the slot is NOT booked.');
+            showToast('pending', 'Payment window closed', 'No payment was received. Your slot is not booked.');
             bookingForm.reset();
             buildDateStrip();
             generateSlotGrid();
-          },
-          modal: {
-            ondismiss: function () {
-              alert('Payment window closed. Your slot was NOT booked — no payment was received. Please book again to confirm your slot.');
-              bookingForm.reset();
-              buildDateStrip();
-              generateSlotGrid();
-            }
           }
-        };
+        }
+      };
 
-        const rzp = new Razorpay(options);
-        rzp.open();
-      } catch (err) {
-        msg.style.color = '#ff5c5c';
-        msg.textContent = 'Payment window failed to open. Your slot is NOT booked yet — please try again.';
-      }
+      const rzp = new Razorpay(options);
+      rzp.open();
     } catch (err) {
-      msg.style.color = '#ff5c5c';
-      msg.textContent = 'Could not connect to server. Is it running?';
+      setMessage('error', 'Could not reach the arena server. Please try again.');
+    } finally {
+      setBusy(false);
     }
   });
 });
@@ -334,16 +432,17 @@ document.addEventListener('DOMContentLoaded', () => {
 // ---- Booking confirmation card (shown after success) ----
 function showConfirmation(details) {
   const el = document.getElementById('bookingConfirm');
+  if (!el) return;
   el.innerHTML = `
-    <h3>Booking Confirmed</h3>
+    <h3><svg aria-hidden="true"><use href="#i-check"/></svg>Booking confirmed</h3>
     <div class="confirm-row"><span>Booking ID</span><span>${escapeHTML(details.bookingId)}</span></div>
     <div class="confirm-row"><span>Date</span><span>${escapeHTML(details.date)}</span></div>
     <div class="confirm-row"><span>Sport</span><span>${escapeHTML(details.sport.toUpperCase())} (${escapeHTML(details.format)})</span></div>
     <div class="confirm-row"><span>Slots</span><span>${escapeHTML(details.slots.map(to12HourDisplay).join(', '))}</span></div>
-    <div class="confirm-row"><span>Payment Mode</span><span>Online (Advance Paid)</span></div>
-    <div class="confirm-row"><span>Advance Paid</span><span>₹${details.advanceAmount}</span></div>
-    <div class="confirm-row"><span>Balance at Turf</span><span>₹${details.balanceAmount}</span></div>
-    <p class="confirm-note">📸 Please take a screenshot of this confirmation for your records and show it at the turf.</p>
+    <div class="confirm-row"><span>Payment mode</span><span>Online (advance paid)</span></div>
+    <div class="confirm-row"><span>Advance paid</span><span>₹${details.advanceAmount}</span></div>
+    <div class="confirm-row"><span>Balance at turf</span><span>₹${details.balanceAmount}</span></div>
+    <p class="confirm-note">Take a screenshot of this confirmation and show it at the turf.</p>
   `;
   el.style.display = 'block';
   el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -356,30 +455,63 @@ document.addEventListener('DOMContentLoaded', () => {
   const lookupMsg = document.getElementById('lookupMsg');
   const myBookingsList = document.getElementById('myBookingsList');
 
+  function setLookupMessage(kind, text) {
+    if (!lookupMsg) return;
+    lookupMsg.textContent = text || '';
+    lookupMsg.classList.remove('is-error', 'is-pending', 'is-success');
+    if (kind) lookupMsg.classList.add(`is-${kind}`);
+  }
+
+  function skeletonBookings(count) {
+    return Array.from({ length: count }, () => `
+      <div class="skeleton-card" aria-hidden="true">
+        <div class="skeleton skeleton-line" style="width:30%"></div>
+        <div class="skeleton skeleton-line" style="margin-top:1rem"></div>
+        <div class="skeleton skeleton-line"></div>
+      </div>`).join('');
+  }
+
+  function emptyBookings(title, text) {
+    return `
+      <div class="empty-state" style="grid-column:1/-1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 13.2h4.6l1.4 2.6h6l1.4-2.6H21"/></svg>
+        <strong>${escapeHTML(title)}</strong>
+        <span>${escapeHTML(text)}</span>
+      </div>`;
+  }
+
   async function loadMyBookings() {
     const phone = lookupPhone.value.trim();
     if (!/^[0-9]{10}$/.test(phone)) {
-      lookupMsg.style.color = '#ff5c5c';
-      lookupMsg.textContent = 'Please enter a valid 10-digit phone number.';
+      lookupPhone.setAttribute('aria-invalid', 'true');
+      setLookupMessage('error', 'Please enter a valid 10-digit phone number.');
       return;
     }
-    lookupMsg.style.color = '#d4af37';
-    lookupMsg.textContent = 'Looking up your bookings...';
+    lookupPhone.removeAttribute('aria-invalid');
+    setLookupMessage('pending', 'Looking up your bookings...');
+    myBookingsList.innerHTML = skeletonBookings(2);
+
     try {
       const res = await fetch(`${API_BASE}/bookings/lookup?phone=${phone}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Lookup failed');
-      lookupMsg.textContent = '';
+
+      setLookupMessage(null, '');
       myBookingsList.innerHTML = '';
       if (!data.bookings.length) {
-        myBookingsList.innerHTML = '<p style="color:var(--gray);font-size:13px;">No bookings found for this number.</p>';
+        myBookingsList.innerHTML = emptyBookings('No bookings on this number', 'Check the number you booked with, or book a slot first.');
         return;
       }
+
+      const frag = document.createDocumentFragment();
       data.bookings.forEach(b => {
-        const card = document.createElement('div');
-        const statusClass = b.status === 'cancelled' ? 'cancelled' : (b.status === 'advance-paid' || b.status === 'completed' ? 'confirmed' : 'pending');
-        const statusLabel = b.status === 'pending-payment' ? 'Payment Pending' : b.status.toUpperCase();
-        const cancellable = (b.status === 'pending-payment' || b.status === 'advance-paid') && b.date >= formatDateISO(new Date());
+        const statusClass = b.status === 'cancelled' ? 'cancelled'
+          : (b.status === 'advance-paid' || b.status === 'completed' ? 'confirmed' : 'pending');
+        const statusLabel = b.status === 'pending-payment' ? 'Payment pending' : b.status.replace(/-/g, ' ');
+        const cancellable = (b.status === 'pending-payment' || b.status === 'advance-paid')
+          && b.date >= formatDateISO(new Date());
+
+        const card = document.createElement('article');
         card.className = 'my-booking-card ' + statusClass;
         card.innerHTML = `
           <div class="mb-top">
@@ -388,36 +520,48 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <div class="mb-slots">${escapeHTML(b.slots.map(to12HourDisplay).join(', '))}</div>
           <div class="mb-top">
-            <span class="mb-date">${escapeHTML(b.date)} • ${escapeHTML(b.sport.toUpperCase())} (${escapeHTML(b.format)}) • ${b.paymentMode === 'cash' ? '💵 Cash at turf' : '💳 Online'}</span>
+            <span class="mb-date">${escapeHTML(b.date)} &middot; ${escapeHTML(b.sport.toUpperCase())} (${escapeHTML(b.format)}) &middot; ${b.paymentMode === 'cash' ? 'Cash at turf' : 'Paid online'}</span>
             <span class="mb-date">${b.paymentMode === 'cash' ? `₹${b.balanceAmount} due at turf` : `₹${b.advanceAmount} paid`}</span>
           </div>
-          ${cancellable ? `<div style="margin-top:12px;"><button class="btn-cancel-booking" onclick="cancelMyBooking('${escapeHTML(b.id)}')">Cancel this booking</button></div>` : ''}
+          ${cancellable ? `<div class="mb-actions"><button type="button" class="btn-cancel-booking" data-booking-id="${escapeHTML(b.id)}">Cancel this booking</button></div>` : ''}
         `;
-        myBookingsList.appendChild(card);
+        frag.appendChild(card);
+      });
+      myBookingsList.appendChild(frag);
+
+      // Event delegation keeps the inline-handler attribute out of the markup.
+      myBookingsList.querySelectorAll('[data-booking-id]').forEach(btn => {
+        btn.addEventListener('click', () => cancelMyBooking(btn.dataset.bookingId));
       });
     } catch (err) {
-      lookupMsg.style.color = '#ff5c5c';
-      lookupMsg.textContent = err.message || 'Could not load bookings. Is the server running?';
+      myBookingsList.innerHTML = '';
+      setLookupMessage('error', err.message || 'Could not load your bookings. Please try again.');
     }
   }
 
   window.cancelMyBooking = async function (id) {
     const phone = lookupPhone.value.trim();
     if (!confirm('Cancel this booking? The advance payment is non-refundable and will NOT be returned.')) return;
+
     try {
-      const res = await fetch(`${API_BASE}/bookings/${id}/cancel`, {
+      const res = await fetch(`${API_BASE}/bookings/${encodeURIComponent(id)}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not cancel booking');
-      alert(data.message);
+      showToast('success', 'Booking cancelled', data.message || 'The slot has been released.');
       loadMyBookings();
     } catch (err) {
-      alert(err.message || 'Could not cancel booking. Please try again.');
+      showToast('error', 'Could not cancel booking', err.message || 'Please try again.');
     }
   };
+
+  lookupPhone.addEventListener('input', () => {
+    lookupPhone.removeAttribute('aria-invalid');
+    if (lookupMsg.classList.contains('is-error')) setLookupMessage(null, '');
+  });
 
   lookupBtn.addEventListener('click', loadMyBookings);
   lookupPhone.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadMyBookings(); });
